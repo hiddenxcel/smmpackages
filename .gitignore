@@ -1,0 +1,30 @@
+# --- Secrets & environment (NEVER commit) ---
+config/.env
+config/.env.*
+!config/.env.example
+
+# --- Runtime / generated ---
+storage/logs/*
+storage/cache/*
+storage/tmp/*
+*.log
+
+# --- Temp / diagnostic files (created during dev, must not ship) ---
+public/_*.php
+public/_*.html
+public/assets/css/_*.css
+public/_mockpanel/
+public/_sw.txt
+
+# --- Dependencies (not used, but guard anyway) ---
+/vendor/
+/node_modules/
+
+# --- OS / editor cruft ---
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+.idea/
+.vscode/

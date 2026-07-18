@@ -1,0 +1,13 @@
+# SMM Packages — hardening for when the docroot is the project root (XAMPP local).
+# In PRODUCTION, point DocumentRoot at public/ so app/config/database/cron are
+# never under the web root. These rules are a fallback for that case.
+
+# Block dotfiles (.env, .git, ...) everywhere.
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+# Never serve these as text, wherever they live.
+<FilesMatch "\.(env|sql|md|lock|ini|log|example|dist)$">
+    Require all denied
+</FilesMatch>
