@@ -73,19 +73,28 @@ class BotRouter
         }
 
         // 3. Gate check — the chosen service must be active for this tenant.
+        //    SANDBOX exception: if the service is in sandbox and the sender is one
+        //    of the tenant's own test numbers, let it through so they can try the
+        //    full flow before going live. Everyone else is still gate-locked.
         $serviceKey = $target === 'support' ? 'support_bot' : 'order_bot';
         if (!Subscription::isServiceActive($tenantId, $serviceKey)) {
-            // If a "both" number's chosen bot is locked but the other is active,
-            // fall back to the active one rather than replying "paused".
-            $other = $target === 'support' ? 'order' : 'support';
-            $otherKey = $other === 'support' ? 'support_bot' : 'order_bot';
-            if ($botType === 'both' && Subscription::isServiceActive($tenantId, $otherKey)) {
-                $target = $other;
-                $serviceKey = $otherKey;
+            if (Subscription::isSandbox($tenantId, $serviceKey) && self::isTestNumber($tenantId, $from)) {
+                // sandbox self-test — allowed. Fall through to dispatch.
             } else {
-                self::sendPaused($tenant, $whatsapp, $from);
+                // If a "both" number's chosen bot is locked but the other is
+                // active (or sandbox-testable), fall back to it.
+                $other = $target === 'support' ? 'order' : 'support';
+                $otherKey = $other === 'support' ? 'support_bot' : 'order_bot';
+                $otherOk = Subscription::isServiceActive($tenantId, $otherKey)
+                    || (Subscription::isSandbox($tenantId, $otherKey) && self::isTestNumber($tenantId, $from));
+                if ($botType === 'both' && $otherOk) {
+                    $target = $other;
+                    $serviceKey = $otherKey;
+                } else {
+                    self::sendPaused($tenant, $whatsapp, $from);
 
-                return 'gate_locked';
+                    return 'gate_locked';
+                }
             }
         }
 
@@ -172,6 +181,29 @@ class BotRouter
             'button' => (string) ($message['button']['payload'] ?? $message['button']['text'] ?? ''),
             default => '',
         };
+    }
+
+    /**
+     * Is this sender one of the tenant's registered test numbers? Test numbers
+     * live in the tenant's bot settings (shop.test_numbers) and let the reseller
+     * try a sandbox service before going live. Digits-only compare.
+     */
+    private static function isTestNumber(int $tenantId, string $from): bool
+    {
+        $fromDigits = preg_replace('/\D/', '', $from);
+        if ($fromDigits === '') {
+            return false;
+        }
+        foreach (['order', 'support'] as $bot) {
+            $nums = BotSettings::get($tenantId, $bot)['shop']['test_numbers'] ?? [];
+            foreach ((array) $nums as $n) {
+                if (preg_replace('/\D/', '', (string) $n) === $fromDigits) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static function sendPaused(array $tenant, array $whatsapp, string $from): void

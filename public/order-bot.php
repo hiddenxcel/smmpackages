@@ -15,6 +15,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     $s['spam']['disable_minutes'] = max(1, (int) ($_POST['spam_disable'] ?? 60));
     $staffRaw = trim($_POST['staff_numbers'] ?? '');
     $s['staff']['numbers'] = $staffRaw === '' ? [] : array_values(array_filter(array_map('trim', explode(',', $staffRaw))));
+    if (isset($_POST['test_numbers'])) {
+        $testRaw = trim($_POST['test_numbers']);
+        $s['shop']['test_numbers'] = $testRaw === '' ? [] : array_values(array_filter(array_map('trim', explode(',', $testRaw))));
+    }
     BotSettings::save($tenantId, 'order', $s);
     header('Location: order-bot.php?saved=1');
     exit;
@@ -25,10 +29,12 @@ if (isset($_GET['saved'])) {
 }
 
 $active = Subscription::isServiceActive($tenantId, 'order_bot');
+$sandbox = !$active && Subscription::isSandbox($tenantId, 'order_bot');
 $daysLeft = $active ? Subscription::daysLeft($tenantId, 'order_bot') : null;
 $whatsapp = TenantWhatsApp::forTenant($tenantId);
 $hasPanel = TenantPanel::countForTenant($tenantId) > 0;
 $settings = BotSettings::get($tenantId, 'order');
+$testNumbers = $settings['shop']['test_numbers'] ?? [];
 
 $pageTitle = Lang::t('obot_title');
 $activeSide = 'order-bot';
@@ -39,7 +45,17 @@ require __DIR__ . '/includes/dash_header.php';
 <div class="alert alert-success"><i class="fa-solid fa-circle-check" style="margin-top:3px"></i> <?= htmlspecialchars($notice) ?></div>
 <?php endif; ?>
 
-<?php if (!$active): ?>
+<?php if ($sandbox): ?>
+<!-- Sandbox: setup + self-test allowed; not live to real customers yet. -->
+<div class="sandbox-banner" style="margin-bottom:22px">
+  <div class="sb-ico"><i class="fa-solid fa-flask"></i></div>
+  <div class="sb-text">
+    <strong><?php e('sandbox_svc_title'); ?></strong>
+    <span><?php e('sandbox_svc_sub'); ?></span>
+  </div>
+  <a href="subscription.php?golive=1&svc=order_bot" class="btn btn-primary sb-cta"><i class="fa-solid fa-rocket"></i> <?php e('sandbox_go_live'); ?></a>
+</div>
+<?php elseif (!$active): ?>
 <div class="alert alert-danger">
   <i class="fa-solid fa-lock" style="margin-top:3px"></i>
   <?php e('obot_locked'); ?> <a href="subscription.php" style="margin-left:6px;font-weight:600"><?php e('buy_now'); ?></a>
@@ -80,6 +96,35 @@ require __DIR__ . '/includes/dash_header.php';
     </div>
   </div>
 </div>
+
+<?php if ($sandbox): ?>
+<!-- TEST MODE: register a test number + how to try the bot before going live. -->
+<div class="card" style="margin-top:22px;border:1px solid rgba(245,158,11,.35)">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+    <div style="width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:rgba(245,158,11,.16);color:var(--accent-dark)"><i class="fa-solid fa-vial"></i></div>
+    <h3 style="margin:0"><?php e('test_bot_title'); ?></h3>
+  </div>
+  <p style="color:var(--text-muted);margin-bottom:16px"><?php e('test_bot_intro'); ?></p>
+
+  <form method="post" action="order-bot.php" style="margin-bottom:18px">
+    <?= Csrf::field() ?>
+    <input type="hidden" name="test_only" value="1">
+    <div class="form-group">
+      <label><?php e('test_numbers_label'); ?></label>
+      <input class="form-control" type="text" name="test_numbers" value="<?= htmlspecialchars(implode(', ', (array) $testNumbers)) ?>" placeholder="+255712345678, +255700000000">
+      <div class="form-hint"><?php e('test_numbers_hint'); ?></div>
+    </div>
+    <button class="btn btn-outline" type="submit"><i class="fa-solid fa-floppy-disk"></i> <?php e('test_numbers_save'); ?></button>
+  </form>
+
+  <?php if (!empty($testNumbers)): ?>
+  <div class="alert" style="background:var(--primary-soft);color:var(--primary-dark);display:block;line-height:1.6">
+    <strong><i class="fa-solid fa-circle-play"></i> <?php e('test_how_title'); ?></strong><br>
+    <?= htmlspecialchars(Lang::t('test_how_step', ['number' => $whatsapp['display_number'] ?? Lang::t('test_your_number')])) ?>
+  </div>
+  <?php endif; ?>
+</div>
+<?php endif; ?>
 
 <!-- Spam / staff settings -->
 <form method="post" action="order-bot.php" style="margin-top:22px">

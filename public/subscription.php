@@ -40,6 +40,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 
 $plans = Plan::allActive();
 $gate = Subscription::statusMap($tenantId);
+$stateMap = Subscription::stateMap($tenantId);          // active | sandbox | locked
+$goLive = isset($_GET['golive']);                        // arrived via a "Go Live" button
+$goLiveSvc = $_GET['svc'] ?? '';                          // a specific service to highlight
+$sandboxCount = count(array_filter($stateMap, fn ($s) => $s === 'sandbox'));
 
 $svcIcon = [
     'order_bot'     => 'fa-solid fa-cart-shopping',
@@ -53,7 +57,18 @@ $activeSide = 'subscription';
 require __DIR__ . '/includes/dash_header.php';
 ?>
 
+<?php if ($goLive && $sandboxCount > 0): ?>
+<!-- Go Live banner: the reseller clicked "Go Live" in the sandbox dashboard. -->
+<div class="sandbox-banner" style="margin-bottom:22px">
+  <div class="sb-ico"><i class="fa-solid fa-rocket"></i></div>
+  <div class="sb-text">
+    <strong><?php e('golive_title'); ?></strong>
+    <span><?php e('golive_sub'); ?></span>
+  </div>
+</div>
+<?php else: ?>
 <p style="color:var(--text-muted);margin-bottom:24px"><?php e('sub_intro'); ?></p>
+<?php endif; ?>
 
 <?php $availCredit = (float) ($tenant['referral_credit'] ?? 0); if ($availCredit > 0): ?>
 <div class="alert alert-success">
@@ -71,8 +86,11 @@ require __DIR__ . '/includes/dash_header.php';
 
 <div class="grid grid-2">
   <?php foreach ($plans as $plan): $key = $plan['service_key']; $active = $gate[$key] ?? false;
+        $svcState = $stateMap[$key] ?? 'locked';
+        $isSandbox = $svcState === 'sandbox';
+        $highlight = $goLive && $isSandbox && ($goLiveSvc === '' || $goLiveSvc === $key);
         $activeSub = $active ? Subscription::activeForService($tenantId, $key) : null; ?>
-  <div class="card">
+  <div class="card<?= $highlight ? ' card-golive' : '' ?>"<?= $highlight ? ' id="golive-'.htmlspecialchars($key).'"' : '' ?>>
     <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">
       <div class="card-icon"><i class="<?= $svcIcon[$key] ?? 'fa-solid fa-cube' ?>"></i></div>
       <div>
@@ -81,6 +99,8 @@ require __DIR__ . '/includes/dash_header.php';
       </div>
       <?php if ($active): ?>
         <span class="status-chip active" style="position:static;margin-left:auto">✅ <?php e('status_active'); ?></span>
+      <?php elseif ($isSandbox): ?>
+        <span class="status-chip" style="position:static;margin-left:auto;background:rgba(245,158,11,.15);color:var(--accent-dark)">🧪 <?php e('svc_sandbox'); ?></span>
       <?php endif; ?>
     </div>
 
@@ -124,8 +144,8 @@ require __DIR__ . '/includes/dash_header.php';
       </div>
 
       <button class="btn btn-primary btn-block" type="submit">
-        <i class="fa-solid fa-lock"></i>
-        <span class="pay-label"><?= htmlspecialchars(Lang::t('sub_pay', ['amount' => money((float) $plan['price_monthly'])])) ?></span>
+        <i class="fa-solid <?= $isSandbox ? 'fa-rocket' : 'fa-lock' ?>"></i>
+        <span class="pay-label"><?php if ($isSandbox): ?><?= htmlspecialchars(Lang::t('sandbox_go_live')) ?> — <?php endif; ?><?= htmlspecialchars(Lang::t('sub_pay', ['amount' => money((float) $plan['price_monthly'])])) ?></span>
       </button>
     </form>
   </div>
@@ -139,16 +159,25 @@ document.querySelectorAll('.checkout-form').forEach(function(form){
   var phoneGroup = form.querySelector('.phone-group');
   var payLabel = form.querySelector('.pay-label');
   var payTpl = <?= json_encode(Lang::t('sub_pay', ['amount' => '__AMT__'])) ?>;
+  var goLivePrefix = <?= json_encode(Lang::t('sandbox_go_live')) ?> + ' — ';
+  var card = form.closest('.card');
+  var isSandbox = card && card.classList.contains('card-golive');
 
   function refresh(){
     var amt = period.options[period.selectedIndex].dataset.amt;
-    payLabel.textContent = payTpl.replace('__AMT__', amt);
+    payLabel.textContent = (isSandbox ? goLivePrefix : '') + payTpl.replace('__AMT__', amt);
     phoneGroup.style.display = (gateway.value === 'snippe') ? 'block' : 'none';
   }
   period.addEventListener('change', refresh);
   gateway.addEventListener('change', refresh);
   refresh();
 });
+
+/* Arriving via "Go Live" — scroll the highlighted service card into view. */
+(function(){
+  var target = document.querySelector('.card-golive');
+  if (target) { setTimeout(function(){ target.scrollIntoView({behavior:'smooth', block:'center'}); }, 200); }
+})();
 </script>
 
 <?php require __DIR__ . '/includes/dash_footer.php'; ?>

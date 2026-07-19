@@ -1122,7 +1122,46 @@ h1, h2, h3, h4 { line-height: 1.2; font-weight: 800; font-family: var(--font-dis
   box-shadow: 0 4px 12px rgba(245,158,11,.35);
 }
 .svc-card.is-active { border-color: rgba(16,185,129,.5); }
+.svc-card.is-sandbox { border-color: rgba(245,158,11,.45); }
 .svc-card.is-locked { opacity: .85; }
+.svc-card .svc-state.sandbox { color: var(--accent-dark); }
+[data-theme="dark"] .svc-card .svc-state.sandbox { color: #FBBF24; }
+
+/* A checkout card highlighted because the reseller clicked "Go Live" for it. */
+.card-golive {
+  border: 2px solid var(--primary) !important;
+  box-shadow: var(--shadow-lg), 0 0 0 4px rgba(14,164,114,.12) !important;
+  position: relative;
+}
+.card-golive::before {
+  content: "▶ GO LIVE"; position: absolute; top: -11px; left: 20px;
+  background: linear-gradient(135deg, var(--primary), #09c87a); color: #fff;
+  font-size: .64rem; font-weight: 800; letter-spacing: .08em;
+  padding: 3px 12px; border-radius: 999px;
+}
+
+/* Sandbox banner — the "you're in a free test space, go live to sell" strip. */
+.sandbox-banner {
+  display: flex; align-items: center; gap: 16px;
+  background: linear-gradient(135deg, rgba(245,158,11,.14), rgba(245,158,11,.05));
+  border: 1px solid rgba(245,158,11,.35); border-radius: 18px;
+  padding: 16px 20px; margin-bottom: 22px;
+}
+[data-theme="dark"] .sandbox-banner { background: linear-gradient(135deg, rgba(245,158,11,.16), rgba(245,158,11,.04)); }
+.sandbox-banner .sb-ico {
+  width: 42px; height: 42px; flex: 0 0 42px; border-radius: 12px;
+  display: grid; place-items: center; font-size: 1.1rem;
+  background: rgba(245,158,11,.18); color: var(--accent-dark);
+}
+[data-theme="dark"] .sandbox-banner .sb-ico { color: #FBBF24; }
+.sandbox-banner .sb-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.sandbox-banner .sb-text strong { font-size: .95rem; }
+.sandbox-banner .sb-text span { font-size: .82rem; color: var(--text-muted); }
+.sandbox-banner .sb-cta { flex-shrink: 0; }
+@media (max-width: 640px) {
+  .sandbox-banner { flex-wrap: wrap; }
+  .sandbox-banner .sb-cta { width: 100%; justify-content: center; }
+}
 .svc-card .svc-ico {
   width: 52px; height: 52px; margin: 4px auto 12px; border-radius: 15px;
   display: grid; place-items: center; font-size: 1.4rem;

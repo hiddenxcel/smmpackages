@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     tenant_id INT UNSIGNED NOT NULL,
     plan_id INT UNSIGNED NULL,
     service_key ENUM('order_bot', 'support_bot', 'ai_tickets', 'number_rental') NOT NULL,
-    status ENUM('pending', 'active', 'expired', 'cancelled') NOT NULL DEFAULT 'pending',
+    status ENUM('pending', 'sandbox', 'active', 'expired', 'cancelled') NOT NULL DEFAULT 'pending',
     starts_at DATETIME NULL,
     ends_at DATETIME NULL,
     auto_renew TINYINT(1) NOT NULL DEFAULT 0,

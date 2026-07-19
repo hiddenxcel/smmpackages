@@ -35,6 +35,7 @@ class BotSettings extends BaseModel
             'currency' => 'USD',       // tenant picks their own (USD, TZS, KES, …)
             'min_topup' => 1,          // minimum wallet top-up in that currency
             'referral_percent' => 0,   // % of a referred customer's first deposit
+            'test_numbers' => [],      // phones that may try the bot while in SANDBOX
         ],
     ];
 

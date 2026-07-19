@@ -68,6 +68,7 @@ $panels = TenantPanel::forTenant($tenantId);
 $pageTitle = Lang::t('panels_page_title');
 $activeSide = 'panels';
 require __DIR__ . '/includes/dash_header.php';
+require __DIR__ . '/includes/sandbox_notice.php';
 ?>
 
 <?php if ($notice !== null): ?>

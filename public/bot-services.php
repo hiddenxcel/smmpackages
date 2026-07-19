@@ -159,6 +159,7 @@ $currency = BotSettings::get($tenantId, 'order')['shop']['currency'] ?? 'USD';
 $pageTitle = 'Bot Services & Pricing';
 $activeSide = 'bot-services';
 require __DIR__ . '/includes/dash_header.php';
+require __DIR__ . '/includes/sandbox_notice.php';
 
 $money = static fn ($v) => $currency . ' ' . (($v == (int) $v) ? number_format((float) $v, 0) : number_format((float) $v, 2));
 ?>

@@ -74,6 +74,82 @@ class Subscription extends BaseModel
         return $map;
     }
 
+    /**
+     * True if a service is in SANDBOX (reseller is setting it up but hasn't gone
+     * live/paid). Sandbox is NOT live — the public gate (isServiceActive) still
+     * returns false — but dashboard setup pages and self-test are unlocked.
+     */
+    public static function isSandbox(int $tenantId, string $serviceKey): bool
+    {
+        $stmt = self::db()->prepare(
+            "SELECT 1 FROM subscriptions
+             WHERE tenant_id = ? AND service_key = ? AND status = 'sandbox' LIMIT 1"
+        );
+        $stmt->execute([$tenantId, $serviceKey]);
+
+        return $stmt->fetch() !== false;
+    }
+
+    /** serviceKey => 'active' | 'sandbox' | 'locked' — the tri-state dashboards use. */
+    public static function stateMap(int $tenantId): array
+    {
+        $map = [];
+        foreach (self::SERVICES as $service) {
+            if (self::isServiceActive($tenantId, $service)) {
+                $map[$service] = 'active';
+            } elseif (self::isSandbox($tenantId, $service)) {
+                $map[$service] = 'sandbox';
+            } else {
+                $map[$service] = 'locked';
+            }
+        }
+
+        return $map;
+    }
+
+    /** A service is "usable" (setup pages + self-test allowed) if active OR sandbox. */
+    public static function isUsable(int $tenantId, string $serviceKey): bool
+    {
+        return self::isServiceActive($tenantId, $serviceKey)
+            || self::isSandbox($tenantId, $serviceKey);
+    }
+
+    /**
+     * Give a brand-new tenant a sandbox row for every service, so they land in a
+     * fully explorable dashboard for free. Idempotent: skips services that already
+     * have any subscription row.
+     */
+    public static function provisionSandbox(int $tenantId): void
+    {
+        foreach (self::SERVICES as $service) {
+            $existing = self::db()->prepare('SELECT 1 FROM subscriptions WHERE tenant_id = ? AND service_key = ? LIMIT 1');
+            $existing->execute([$tenantId, $service]);
+            if ($existing->fetch() !== false) {
+                continue;
+            }
+            $plan = Plan::forService($service);
+            self::create($tenantId, $service, $plan['id'] ?? null, 'sandbox');
+        }
+    }
+
+    /**
+     * Flip a service from sandbox to active (called after a successful "Go Live"
+     * payment). Returns true if a sandbox row was promoted.
+     */
+    public static function goLive(int $tenantId, string $serviceKey, int $months = 1): bool
+    {
+        $stmt = self::db()->prepare(
+            "SELECT id FROM subscriptions WHERE tenant_id = ? AND service_key = ? AND status = 'sandbox' LIMIT 1"
+        );
+        $stmt->execute([$tenantId, $serviceKey]);
+        $id = $stmt->fetchColumn();
+        if ($id === false) {
+            return false;
+        }
+
+        return self::activate((int) $id, $months);
+    }
+
     /** Whole days left on an active subscription, or null if open/none. */
     public static function daysLeft(int $tenantId, string $serviceKey): ?int
     {
@@ -85,6 +161,29 @@ class Subscription extends BaseModel
         $diff = strtotime($sub['ends_at']) - time();
 
         return max(0, (int) floor($diff / 86400));
+    }
+
+    /**
+     * Reserve a pending row for checkout. If the service is in SANDBOX, flip that
+     * existing row to 'pending' and reuse it (so paying promotes it to active,
+     * with no orphaned sandbox row). Otherwise create a fresh pending row.
+     */
+    public static function reservePending(int $tenantId, string $serviceKey, ?int $planId = null): int
+    {
+        $stmt = self::db()->prepare(
+            "SELECT id FROM subscriptions WHERE tenant_id = ? AND service_key = ? AND status = 'sandbox' LIMIT 1"
+        );
+        $stmt->execute([$tenantId, $serviceKey]);
+        $id = $stmt->fetchColumn();
+
+        if ($id !== false) {
+            self::db()->prepare("UPDATE subscriptions SET status = 'pending', plan_id = COALESCE(?, plan_id) WHERE id = ?")
+                ->execute([$planId, (int) $id]);
+
+            return (int) $id;
+        }
+
+        return self::create($tenantId, $serviceKey, $planId, 'pending');
     }
 
     public static function create(int $tenantId, string $serviceKey, ?int $planId = null, string $status = 'pending'): int

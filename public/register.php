@@ -48,9 +48,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 Lang::current(),
                 $referrer !== null ? (int) $referrer['id'] : null
             );
+            // Free sign-up: drop the reseller straight into a full SANDBOX — every
+            // service unlocked for setup + self-test, but nothing live until they
+            // pay and "Go Live". No card required to explore.
+            Subscription::provisionSandbox((int) $tenant['id']);
             RateLimit::clear($ip, 'register');
             TenantAuth::login((int) $tenant['id']);
-            header('Location: index.php');
+            header('Location: index.php?welcome=1');
             exit;
         }
     }

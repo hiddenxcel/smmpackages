@@ -7,6 +7,9 @@ $db = DB::conn();
 
 // --- Service gate + days left (a la carte) ---
 $gate = Subscription::statusMap($tenantId);
+$state = Subscription::stateMap($tenantId);        // active | sandbox | locked
+$sandboxCount = count(array_filter($state, fn ($s) => $s === 'sandbox'));
+$anyLive = in_array('active', $state, true);
 $daysLeft = [];
 foreach (Subscription::SERVICES as $svc) {
     $daysLeft[$svc] = $gate[$svc] ? Subscription::daysLeft($tenantId, $svc) : null;
@@ -68,6 +71,18 @@ require __DIR__ . '/includes/dash_header.php';
     <div style="color:var(--text-muted)"><?php e('dash_v2_sub'); ?></div>
   </div>
 </div>
+
+<?php if ($sandboxCount > 0): ?>
+<!-- Sandbox banner: free exploration, bot not live until Go Live. -->
+<div class="sandbox-banner">
+  <div class="sb-ico"><i class="fa-solid fa-flask"></i></div>
+  <div class="sb-text">
+    <strong><?php e('sandbox_title'); ?></strong>
+    <span><?php e($anyLive ? 'sandbox_sub_partial' : 'sandbox_sub'); ?></span>
+  </div>
+  <a href="subscription.php?golive=1" class="btn btn-primary sb-cta"><i class="fa-solid fa-rocket"></i> <?php e('sandbox_go_live'); ?></a>
+</div>
+<?php endif; ?>
 
 <!-- Top row: hero + WhatsApp + renewal -->
 <div class="grid dash-top-grid" style="gap:20px;margin-bottom:8px">
@@ -158,15 +173,21 @@ require __DIR__ . '/includes/dash_header.php';
 <!-- MY SERVICES -->
 <div class="dash-section-label"><?php e('sec_my_services'); ?></div>
 <div class="grid grid-4">
-  <?php foreach ($svcMeta as $key => $meta): $active = $gate[$key] ?? false;
-    $cls = $active ? 'is-active' : 'is-locked'; if ($meta['rec']) $cls .= ' recommended'; ?>
+  <?php foreach ($svcMeta as $key => $meta): $st = $state[$key] ?? 'locked';
+    $cls = 'is-' . $st; if ($meta['rec']) $cls .= ' recommended';
+    $manageHref = $key === 'number_rental' ? 'whatsapp.php' : ($key === 'order_bot' ? 'order-bot.php' : ($key === 'support_bot' ? 'support-bot.php' : 'tickets.php')); ?>
   <div class="svc-card <?= $cls ?>"<?= $meta['rec'] ? ' data-badge="' . htmlspecialchars(Lang::t('svc_recommended'), ENT_QUOTES) . '"' : '' ?>>
     <div class="svc-ico"><i class="<?= $meta['icon'] ?>"></i></div>
     <div class="svc-name"><?= htmlspecialchars($meta['label']) ?></div>
-    <?php if ($active): ?>
+    <?php if ($st === 'active'): ?>
       <div class="svc-state on">✅ <?php e('svc_active'); ?></div>
       <div class="svc-sub"><?= $daysLeft[$key] !== null ? htmlspecialchars(Lang::t('renew_days_left', ['days' => $daysLeft[$key]])) : '∞' ?></div>
-      <a href="<?= $key === 'number_rental' ? 'whatsapp.php' : ($key === 'order_bot' ? 'order-bot.php' : ($key === 'support_bot' ? 'support-bot.php' : 'tickets.php')) ?>" class="btn btn-outline btn-block"><?php e('svc_manage'); ?></a>
+      <a href="<?= $manageHref ?>" class="btn btn-outline btn-block"><?php e('svc_manage'); ?></a>
+    <?php elseif ($st === 'sandbox'): ?>
+      <div class="svc-state sandbox">🧪 <?php e('svc_sandbox'); ?></div>
+      <div class="svc-sub"><?php e('svc_sandbox_sub'); ?></div>
+      <a href="<?= $manageHref ?>" class="btn btn-outline btn-block"><?php e('svc_setup'); ?></a>
+      <a href="subscription.php?golive=1&svc=<?= htmlspecialchars($key) ?>" class="btn btn-primary btn-block" style="margin-top:8px"><?php e('sandbox_go_live'); ?></a>
     <?php else: ?>
       <div class="svc-state off">🔒 <?php e('svc_locked'); ?></div>
       <div class="svc-sub"><?php if (isset($prices[$key])): ?><?= htmlspecialchars($prices[$key]['currency']) ?> <?= money2((float) $prices[$key]['price_monthly']) ?><?php e('per_month'); ?><?php endif; ?></div>

@@ -78,8 +78,10 @@ class SubscriptionBilling
         $creditApplied = Tenant::spendReferralCredit($tenantId, max(0.0, $gross - self::MIN_CHARGE));
         $amount = round($gross - $creditApplied, 2);
 
-        // Pending subscription + pending payment (linked).
-        $subscriptionId = Subscription::create($tenantId, $serviceKey, (int) $plan['id'], 'pending');
+        // Pending subscription + pending payment (linked). If this service is
+        // already in SANDBOX (free sign-up), reuse that row — "Go Live" promotes
+        // it — instead of leaving an orphaned sandbox row behind.
+        $subscriptionId = Subscription::reservePending($tenantId, $serviceKey, (int) $plan['id']);
         $paymentId = SubscriptionPayment::create(
             $tenantId,
             $gateway,
