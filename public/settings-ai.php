@@ -29,6 +29,12 @@ $embed = "<script>\n"
     . "s.async=true;document.body.appendChild(s);})();\n"
     . "</script>";
 
+// Structured ticket form (Category -> Subcategory -> Order ID), embedded via iframe.
+$formUrl = $baseUrl . '/widget/ticket-form.php?t=' . $tenantId;
+$formEmbed = '<iframe src="' . $formUrl . '"'
+    . ' style="width:100%;max-width:560px;height:760px;border:0;border-radius:14px"'
+    . ' title="Support Tickets"></iframe>';
+
 $pageTitle = Lang::t('ai_title');
 $activeSide = 'ai';
 require __DIR__ . '/includes/dash_header.php';
@@ -62,6 +68,16 @@ require __DIR__ . '/includes/dash_header.php';
     <p style="color:var(--text-muted);font-size:.9rem"><?php e('ai_widget_hint'); ?></p>
     <pre style="background:var(--bg-soft);padding:14px;border-radius:10px;overflow-x:auto;font-size:.8rem;line-height:1.5"><code><?= htmlspecialchars($embed) ?></code></pre>
   </div>
+</div>
+
+<div class="card" style="margin-top:18px">
+  <h3 style="margin-top:0"><?php e('ai_form_title'); ?></h3>
+  <p style="color:var(--text-muted);font-size:.9rem"><?php e('ai_form_hint'); ?></p>
+  <label style="display:block;font-size:.85rem;color:var(--text-muted);margin-bottom:6px"><?php e('ai_form_link'); ?></label>
+  <pre style="background:var(--bg-soft);padding:14px;border-radius:10px;overflow-x:auto;font-size:.8rem;margin-bottom:14px"><code><?= htmlspecialchars($formUrl) ?></code></pre>
+  <label style="display:block;font-size:.85rem;color:var(--text-muted);margin-bottom:6px"><?php e('ai_form_embed'); ?></label>
+  <pre style="background:var(--bg-soft);padding:14px;border-radius:10px;overflow-x:auto;font-size:.8rem;line-height:1.5"><code><?= htmlspecialchars($formEmbed) ?></code></pre>
+  <a href="<?= htmlspecialchars($formUrl) ?>" target="_blank" class="btn btn-outline" style="margin-top:6px"><i class="fa-solid fa-up-right-from-square"></i> <?php e('ai_form_preview'); ?></a>
 </div>
 
 <?php require __DIR__ . '/includes/dash_footer.php'; ?>

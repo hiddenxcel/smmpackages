@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/includes/bootstrap.php';
+require_once __DIR__ . '/../app/services/TicketService.php';
 
 $tenant = TenantAuth::require('login.php');
 $tenantId = (int) $tenant['id'];
@@ -59,7 +60,16 @@ $senderMeta = [
     <div style="display:flex;align-items:center;gap:12px">
       <div style="flex:1">
         <h3 style="margin:0"><?= htmlspecialchars($viewTicket['subject']) ?></h3>
-        <div style="font-size:.85rem;color:var(--text-muted)"><?= htmlspecialchars($viewTicket['customer_identifier'] ?? 'Anonymous') ?></div>
+        <div style="font-size:.85rem;color:var(--text-muted)">
+          <?= htmlspecialchars($viewTicket['customer_identifier'] ?? 'Anonymous') ?>
+          <?php
+            $vHuman = ($viewTicket['category'] ?? 'ai') === 'human';
+            $vSub = ($viewTicket['subcategory'] ?? '') !== '' ? (TicketService::SUBCATEGORIES[$viewTicket['subcategory']] ?? $viewTicket['subcategory']) : '';
+          ?>
+          &nbsp;·&nbsp;<span style="color:<?= $vHuman ? '#f59e0b' : 'var(--primary)' ?>;font-weight:600"><?= $vHuman ? 'Human' : 'AI' ?></span>
+          <?php if ($vSub !== ''): ?>· <?= htmlspecialchars($vSub) ?><?php endif; ?>
+          <?php if (($viewTicket['order_ref'] ?? '') !== ''): ?>· Order #<?= htmlspecialchars($viewTicket['order_ref']) ?><?php endif; ?>
+        </div>
       </div>
       <span class="status-chip <?= $viewTicket['status'] === 'resolved' ? 'active' : 'locked' ?>" style="position:static"><?= htmlspecialchars($viewTicket['status']) ?></span>
       <form method="post" action="tickets.php" style="display:inline">
@@ -113,6 +123,7 @@ $senderMeta = [
       <thead>
         <tr style="text-align:left;border-bottom:1px solid var(--border)">
           <th style="padding:14px 18px;font-size:.8rem;color:var(--text-muted)"><?php e('tk_subject'); ?></th>
+          <th style="padding:14px 18px;font-size:.8rem;color:var(--text-muted)"><?php e('tk_type'); ?></th>
           <th style="padding:14px 18px;font-size:.8rem;color:var(--text-muted)"><?php e('tk_customer'); ?></th>
           <th style="padding:14px 18px;font-size:.8rem;color:var(--text-muted)"><?php e('tk_status'); ?></th>
           <th style="padding:14px 18px;font-size:.8rem;color:var(--text-muted)"><?php e('tk_updated'); ?></th>
@@ -120,10 +131,17 @@ $senderMeta = [
       </thead>
       <tbody>
         <?php if (empty($tickets)): ?>
-        <tr><td colspan="4" style="padding:34px;text-align:center;color:var(--text-muted)"><?php e('tk_none'); ?></td></tr>
-        <?php else: foreach ($tickets as $t): ?>
+        <tr><td colspan="5" style="padding:34px;text-align:center;color:var(--text-muted)"><?php e('tk_none'); ?></td></tr>
+        <?php else: foreach ($tickets as $t):
+          $isHuman = ($t['category'] ?? 'ai') === 'human';
+          $subLbl = ($t['subcategory'] ?? '') !== '' ? (TicketService::SUBCATEGORIES[$t['subcategory']] ?? $t['subcategory']) : ''; ?>
         <tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="location.href='tickets.php?id=<?= (int) $t['id'] ?>'">
           <td style="padding:14px 18px;font-weight:600"><?= htmlspecialchars($t['subject']) ?></td>
+          <td style="padding:14px 18px;font-size:.85rem">
+            <span class="status-chip" style="position:static;background:<?= $isHuman ? 'rgba(245,158,11,.14)' : 'var(--primary-soft)' ?>;color:<?= $isHuman ? '#f59e0b' : 'var(--primary)' ?>"><?= $isHuman ? 'Human' : 'AI' ?></span>
+            <?php if ($subLbl !== ''): ?><span style="color:var(--text-muted)"> · <?= htmlspecialchars($subLbl) ?></span><?php endif; ?>
+            <?php if (($t['order_ref'] ?? '') !== ''): ?><div style="color:var(--text-muted);font-size:.78rem">#<?= htmlspecialchars($t['order_ref']) ?></div><?php endif; ?>
+          </td>
           <td style="padding:14px 18px;color:var(--text-muted)"><?= htmlspecialchars($t['customer_identifier'] ?? '—') ?></td>
           <td style="padding:14px 18px"><span class="status-chip <?= $t['status'] === 'resolved' ? 'active' : 'locked' ?>" style="position:static"><?= htmlspecialchars($t['status']) ?></span></td>
           <td style="padding:14px 18px;color:var(--text-muted);font-size:.85rem"><?= date('M j, H:i', strtotime($t['updated_at'])) ?></td>

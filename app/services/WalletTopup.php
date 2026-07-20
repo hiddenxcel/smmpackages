@@ -10,6 +10,8 @@ require_once __DIR__ . '/payments/GatewayRegistry.php';
 require_once __DIR__ . '/payments/SnippeClient.php';
 require_once __DIR__ . '/payments/NowPaymentsClient.php';
 require_once __DIR__ . '/payments/BinancePayClient.php';
+require_once __DIR__ . '/payments/BinanceVerifyClient.php';
+require_once __DIR__ . '/payments/CryptomusClient.php';
 
 /**
  * WalletTopup — the wallet top-up + gateway payment sub-flow.
@@ -50,6 +52,14 @@ class WalletTopup
 
         $ctx['gateway'] = $gateway['gateway'];
         $ctx['topup_amount'] = (float) ($ctx['shortfall'] ?? $ctx['amount'] ?? 0);
+
+        // Manual/verify gateways (Binance internal transfer): no gateway push.
+        // Show the tenant's Binance ID and ask the customer for the Order ID.
+        if (GatewayRegistry::isVerify((string) $gateway['gateway'])) {
+            self::beginBinance($tenant, $wa, $from, $ctx);
+
+            return;
+        }
 
         // Mobile-money gateways need a payer phone; crypto/card ones return a
         // payment link, so we can initiate straight away.
@@ -98,6 +108,110 @@ class WalletTopup
         }
 
         self::initiate($tenant, $wa, $from, $payPhone, $ctx);
+    }
+
+    /**
+     * Binance "internal transfer" begin: create a pending payment, show the
+     * tenant's Binance ID + amount, and wait for the customer's Order ID.
+     */
+    private static function beginBinance(array $tenant, BotMessenger $wa, string $from, array $ctx): void
+    {
+        $tenantId = (int) $tenant['id'];
+        $customer = BotCustomer::getOrCreate($tenantId, $from);
+        $amount = (float) ($ctx['topup_amount'] ?? 0);
+
+        $shop = BotSettings::get($tenantId, self::BOT)['shop'] ?? [];
+        $payId = trim((string) ($shop['binance_pay_id'] ?? ''));
+        if ($payId === '') {
+            $wa->sendText($from, "⚠️ Binance payment isn't fully set up for this store yet. Please contact support.");
+            BotConversation::reset($tenantId, $from, self::BOT);
+
+            return;
+        }
+
+        $ref = 'SMMBNC' . $tenantId . '-' . $customer['id'] . '-' . substr(bin2hex(random_bytes(4)), 0, 8);
+        $paymentId = BotPayment::create($tenantId, [
+            'type' => 'wallet_topup',
+            'customer_id' => (int) $customer['id'],
+            'gateway' => 'binance',
+            'transaction_ref' => $ref,
+            'amount' => $amount,
+        ]);
+
+        $ctx['payment_id'] = $paymentId;
+        BotConversation::set($tenantId, $from, self::BOT, 'AWAITING_BINANCE_ORDER', $ctx);
+
+        $amt = rtrim(rtrim(number_format($amount, 2), '0'), '.');
+        $wa->sendText(
+            $from,
+            "💰 *Pay {$amt} USDT via Binance*\n\n"
+            . "1️⃣ Open Binance → *Pay* → *Send*\n"
+            . "2️⃣ Send *{$amt} USDT* to Binance ID:\n*{$payId}*\n"
+            . "3️⃣ Copy the *Order ID* from the successful payment and send it here.\n\n"
+            . "Your order is placed automatically once the payment is verified."
+        );
+    }
+
+    /**
+     * Handle the AWAITING_BINANCE_ORDER step: verify the reported Order ID
+     * against the tenant's Binance Pay history, then credit + place the order.
+     */
+    public static function verifyBinanceOrder(array $tenant, BotMessenger $wa, string $from, string $text, array $ctx): void
+    {
+        $tenantId = (int) $tenant['id'];
+        $text = trim($text);
+
+        if ($text === '' || strtolower($text) === 'cancel') {
+            $wa->sendText($from, "❌ Payment cancelled. Send *hi* to start again.");
+            BotConversation::reset($tenantId, $from, self::BOT);
+
+            return;
+        }
+
+        $paymentId = (int) ($ctx['payment_id'] ?? 0);
+        $payment = $paymentId > 0 ? BotPayment::find($paymentId) : null;
+        if ($payment === null) {
+            $wa->sendText($from, "⚠️ Payment session expired. Send *hi* to start again.");
+            BotConversation::reset($tenantId, $from, self::BOT);
+
+            return;
+        }
+
+        // Replay guard: this Order ID must not already back a payment (per tenant).
+        if (BotPayment::binanceOrderUsed($tenantId, $text)) {
+            $wa->sendText($from, "⚠️ This Binance Order ID has already been used. Please make a new transfer.");
+
+            return;
+        }
+
+        $gatewayCfg = TenantPaymentGateway::find($tenantId, 'binance');
+        if ($gatewayCfg === null) {
+            $wa->sendText($from, "⚠️ Binance isn't configured for this store. Please contact support.");
+            BotConversation::reset($tenantId, $from, self::BOT);
+
+            return;
+        }
+
+        $shop = BotSettings::get($tenantId, self::BOT)['shop'] ?? [];
+        $client = new BinanceVerifyClient([
+            'api_key' => $gatewayCfg['api_key'] ?? '',
+            'api_secret' => $gatewayCfg['webhook_secret'] ?? '',
+            'pay_id' => (string) ($shop['binance_pay_id'] ?? ''),
+        ]);
+
+        $result = $client->verifyOrder($text, (float) $payment['amount']);
+        if (empty($result['success'])) {
+            // Keep the state so the customer can resend a corrected Order ID.
+            $wa->sendText($from, "❌ " . ($result['message'] ?? 'Verification failed.') . "\n\nSend the correct *Order ID*, or *cancel*.");
+
+            return;
+        }
+
+        // Record the Order ID (unique = replay guard), then complete: credit
+        // wallet + place the pending order (idempotent via markSuccess inside).
+        BotPayment::setBinanceOrder($paymentId, $text);
+        $wa->sendText($from, "✅ Payment verified! Adding funds and placing your order…");
+        self::completeAfterPayment($paymentId);
     }
 
     /** Create the pending payment and trigger the gateway push. */
@@ -206,8 +320,11 @@ class WalletTopup
         self::payReferralBonus($tenantId, $customer, (float) $payment['amount']);
 
         // Complete the pending order, if the conversation still holds one.
+        // Gateway top-ups sit in AWAITING_PAYMENT; Binance verify in
+        // AWAITING_BINANCE_ORDER — both carry the pending order in context.
         $convo = BotConversation::get($tenantId, $customer['phone'], self::BOT);
-        if ($convo === null || ($convo['state'] ?? '') !== 'AWAITING_PAYMENT') {
+        $payState = $convo['state'] ?? '';
+        if ($convo === null || !in_array($payState, ['AWAITING_PAYMENT', 'AWAITING_BINANCE_ORDER'], true)) {
             return;
         }
         $ctx = $convo['context'] ?? [];
@@ -328,6 +445,8 @@ class WalletTopup
         return match ($gateway) {
             'nowpayments' => new NowPaymentsClient(['api_key' => $key, 'ipn_secret' => $secret]),
             'binance' => new BinancePayClient(['api_key' => $key, 'api_secret' => $secret]),
+            // Cryptomus: api_key = Payment API key, webhook_secret slot = Merchant UUID.
+            'cryptomus' => new CryptomusClient(['api_key' => $key, 'merchant' => $secret]),
             default => new SnippeClient(['api_key' => $key, 'webhook_secret' => $secret]),
         };
     }

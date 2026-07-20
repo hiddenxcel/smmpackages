@@ -40,6 +40,33 @@ $renewalPct = $renewalDays !== null ? (int) min(100, round($renewalDays / 30 * 1
 
 $anyBotActive = $gate['order_bot'] || $gate['support_bot'];
 
+// --- Onboarding state: shown until the reseller goes live (has any paid sub) ---
+// Keeps a brand-new sandbox account free of empty analytics ("no clutter"):
+// a guided checklist toward the aha-moment (test the bot) and then Go Live.
+$onbActive = !$anyLive;
+$hasPanel     = TenantPanel::countForTenant($tenantId) > 0;
+$hasServices  = count(BotService::allForTenant($tenantId)) > 0;
+$testNumbers  = BotSettings::get($tenantId, 'order')['shop']['test_numbers'] ?? [];
+$hasTestNumber = !empty($testNumbers);
+$hasTested    = (int) $db->query('SELECT COUNT(*) FROM bot_messages WHERE tenant_id = ' . $tenantId)->fetchColumn() > 0;
+
+$onbSteps = [
+    ['key' => 'account',  'done' => true,          'icon' => 'fa-solid fa-user-check',    'href' => null],
+    ['key' => 'whatsapp', 'done' => $hasWhatsApp,  'icon' => 'fa-brands fa-whatsapp',     'href' => 'whatsapp.php'],
+    ['key' => 'panel',    'done' => $hasPanel,     'icon' => 'fa-solid fa-plug',          'href' => 'panels.php'],
+    ['key' => 'services', 'done' => $hasServices,  'icon' => 'fa-solid fa-tags',          'href' => 'bot-services.php'],
+    ['key' => 'test',     'done' => $hasTested,    'icon' => 'fa-solid fa-flask',         'href' => 'order-bot.php'],
+];
+$onbTotal = count($onbSteps);
+$onbDone  = count(array_filter($onbSteps, fn ($s) => $s['done']));
+$onbPct   = (int) round($onbDone / $onbTotal * 100);
+$onbAllDone = $onbDone === $onbTotal;
+$onbNext = null;
+foreach ($onbSteps as $s) { if (!$s['done']) { $onbNext = $s; break; } }
+// SVG ring geometry (r=54 → circumference ≈ 339.29)
+$onbCirc = 2 * M_PI * 54;
+$onbOffset = $onbCirc * (1 - $onbPct / 100);
+
 // --- Greeting by local hour ---
 $h = (int) date('G');
 $greetKey = $h < 12 ? 'greet_morning' : ($h < 17 ? 'greet_afternoon' : 'greet_evening');
@@ -64,6 +91,16 @@ $activeSide = 'dashboard';
 require __DIR__ . '/includes/dash_header.php';
 ?>
 
+<?php if (isset($_GET['welcome'])): ?>
+<!-- One-time celebratory line right after free sign-up. -->
+<div class="welcome-toast" id="welcomeToast">
+  <span class="wt-emoji">🎉</span>
+  <span><strong><?php e('onb_welcome_toast_t'); ?></strong> <?php e('onb_welcome_toast_s'); ?></span>
+  <button class="wt-x" onclick="document.getElementById('welcomeToast').remove()" aria-label="close">&times;</button>
+</div>
+<?php endif; ?>
+
+<?php if (!$onbActive): ?>
 <!-- Title row -->
 <div style="display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:26px">
   <div>
@@ -71,19 +108,95 @@ require __DIR__ . '/includes/dash_header.php';
     <div style="color:var(--text-muted)"><?php e('dash_v2_sub'); ?></div>
   </div>
 </div>
+<?php endif; ?>
 
-<?php if ($sandboxCount > 0): ?>
-<!-- Sandbox banner: free exploration, bot not live until Go Live. -->
+<?php if ($sandboxCount > 0 && !$onbActive): ?>
+<!-- Sandbox banner: shown once partially live (onboarding hero covers new users). -->
 <div class="sandbox-banner">
   <div class="sb-ico"><i class="fa-solid fa-flask"></i></div>
   <div class="sb-text">
     <strong><?php e('sandbox_title'); ?></strong>
-    <span><?php e($anyLive ? 'sandbox_sub_partial' : 'sandbox_sub'); ?></span>
+    <span><?php e('sandbox_sub_partial'); ?></span>
   </div>
   <a href="subscription.php?golive=1" class="btn btn-primary sb-cta"><i class="fa-solid fa-rocket"></i> <?php e('sandbox_go_live'); ?></a>
 </div>
 <?php endif; ?>
 
+<?php if ($onbActive): ?>
+<!-- ══ ONBOARDING: premium guided setup (replaces empty analytics) ══ -->
+<section class="onb">
+  <div class="onb-hero">
+    <div class="onb-hero-main">
+      <span class="onb-eyebrow"><i class="fa-solid fa-wand-magic-sparkles"></i> <?php e('onb_eyebrow'); ?></span>
+      <h1><?= htmlspecialchars(Lang::t('onb_welcome', ['name' => $tenant['business_name']])) ?> 👋</h1>
+      <p><?php e($onbAllDone ? 'onb_intro_done' : 'onb_intro'); ?></p>
+      <div class="onb-cta-row">
+        <?php if ($onbAllDone): ?>
+          <a href="subscription.php?golive=1" class="btn btn-primary btn-lg"><i class="fa-solid fa-rocket"></i> <?php e('sandbox_go_live'); ?></a>
+        <?php else: ?>
+          <a href="<?= htmlspecialchars($onbNext['href']) ?>" class="btn btn-primary btn-lg"><?= htmlspecialchars(Lang::t('onb_s_' . $onbNext['key'] . '_t')) ?> <i class="fa-solid fa-arrow-right"></i></a>
+          <a href="subscription.php?golive=1" class="btn btn-outline btn-lg"><i class="fa-solid fa-rocket"></i> <?php e('sandbox_go_live'); ?></a>
+        <?php endif; ?>
+      </div>
+    </div>
+    <div class="onb-ring" role="img" aria-label="<?= $onbPct ?>%">
+      <svg viewBox="0 0 120 120">
+        <defs>
+          <linearGradient id="onbGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="var(--primary)"/>
+            <stop offset="100%" stop-color="#22c55e"/>
+          </linearGradient>
+        </defs>
+        <circle class="onb-ring-track" cx="60" cy="60" r="54"/>
+        <circle class="onb-ring-fill" cx="60" cy="60" r="54"
+          stroke-dasharray="<?= round($onbCirc, 2) ?>" stroke-dashoffset="<?= round($onbOffset, 2) ?>"/>
+      </svg>
+      <div class="onb-ring-txt">
+        <span class="onb-ring-pct"><?= $onbPct ?>%</span>
+        <span class="onb-ring-cap"><?= $onbDone ?>/<?= $onbTotal ?></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="onb-steps">
+    <?php $i = 0; foreach ($onbSteps as $s): $i++;
+      $isNext = !$s['done'] && $onbNext && $s['key'] === $onbNext['key'];
+      $cls = $s['done'] ? 'done' : ($isNext ? 'active' : 'todo');
+      $tag = 'div'; $attr = '';
+      if (!$s['done'] && $s['href']) { $tag = 'a'; $attr = ' href="' . htmlspecialchars($s['href']) . '"'; }
+    ?>
+    <<?= $tag ?> class="onb-step <?= $cls ?>"<?= $attr ?>>
+      <span class="onb-step-ico">
+        <?php if ($s['done']): ?><i class="fa-solid fa-check"></i><?php else: ?><span class="onb-step-n"><?= $i ?></span><?php endif; ?>
+      </span>
+      <span class="onb-step-body">
+        <span class="onb-step-title"><?php e('onb_s_' . $s['key'] . '_t'); ?></span>
+        <span class="onb-step-sub"><?php e('onb_s_' . $s['key'] . '_s'); ?></span>
+      </span>
+      <span class="onb-step-action">
+        <?php if ($s['done']): ?>
+          <span class="onb-chip done"><i class="fa-solid fa-check"></i> <?php e('onb_done'); ?></span>
+        <?php elseif ($isNext): ?>
+          <span class="onb-chip go"><?php e('onb_start'); ?> <i class="fa-solid fa-arrow-right"></i></span>
+        <?php else: ?>
+          <span class="onb-chip"><i class="fa-solid fa-arrow-right"></i></span>
+        <?php endif; ?>
+      </span>
+    </<?= $tag ?>>
+    <?php endforeach; ?>
+
+    <!-- Final: Go Live (the conversion) -->
+    <a href="subscription.php?golive=1" class="onb-golive <?= $onbAllDone ? 'ready' : '' ?>">
+      <span class="onb-step-ico"><i class="fa-solid fa-rocket"></i></span>
+      <span class="onb-step-body">
+        <span class="onb-step-title"><?php e('onb_golive_t'); ?></span>
+        <span class="onb-step-sub"><?php e('onb_golive_s'); ?></span>
+      </span>
+      <span class="onb-step-action"><span class="onb-chip go"><?php e('sandbox_go_live'); ?> <i class="fa-solid fa-arrow-right"></i></span></span>
+    </a>
+  </div>
+</section>
+<?php else: ?>
 <!-- Top row: hero + WhatsApp + renewal -->
 <div class="grid dash-top-grid" style="gap:20px;margin-bottom:8px">
   <!-- Hero greeting -->
@@ -169,6 +282,7 @@ require __DIR__ . '/includes/dash_header.php';
     <?php endif; ?>
   </div>
 </div>
+<?php endif; /* end top-row (full dashboard only) */ ?>
 
 <!-- MY SERVICES -->
 <div class="dash-section-label"><?php e('sec_my_services'); ?></div>
@@ -197,6 +311,7 @@ require __DIR__ . '/includes/dash_header.php';
   <?php endforeach; ?>
 </div>
 
+<?php if (!$onbActive): /* Analytics hidden until live — no empty clutter */ ?>
 <!-- RESOURCE INSIGHTS (Wapi-style: X / Y + % UTILIZED) -->
 <?php $activeSvcCount = count(array_filter($gate)); ?>
 <div class="dash-section-label"><?php e('sec_resource_insights'); ?></div>
@@ -297,5 +412,6 @@ require __DIR__ . '/includes/dash_header.php';
     <span><?= date('M j') ?></span>
   </div>
 </div>
+<?php endif; /* end analytics (full dashboard only) */ ?>
 
 <?php require __DIR__ . '/includes/dash_footer.php'; ?>

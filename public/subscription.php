@@ -9,6 +9,7 @@ $billing = new SubscriptionBilling($config);
 $notice = null;
 $noticeType = 'success';
 $redirectUrl = null;
+$binancePanel = null; // set when Binance manual-verify checkout is initiated
 
 if (isset($_GET['paid']))      { $notice = Lang::t('sub_paid'); }
 if (isset($_GET['cancelled'])) { $notice = Lang::t('sub_cancelled'); $noticeType = 'danger'; }
@@ -16,25 +17,53 @@ if (isset($_GET['cancelled'])) { $notice = Lang::t('sub_cancelled'); $noticeType
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     Csrf::verify();
 
-    $serviceKey = $_POST['service_key'] ?? '';
-    $months = (int) ($_POST['months'] ?? 1);
-    $gateway = $_POST['gateway'] ?? '';
-    $extra = ['phone' => trim($_POST['phone'] ?? '')];
-
-    $result = $billing->checkout($tenant, $serviceKey, $months, $gateway, $extra);
-
-    if (!empty($result['success'])) {
-        if (!empty($result['redirect_url'])) {
-            // Crypto gateways: bounce the tenant to the hosted invoice.
-            header('Location: ' . $result['redirect_url']);
-            exit;
+    // Binance "internal transfer" verify step: tenant pasted their Order ID.
+    if (($_POST['action'] ?? '') === 'binance_verify') {
+        $ref = trim($_POST['transaction_ref'] ?? '');
+        $binanceOrderId = trim($_POST['binance_order_id'] ?? '');
+        $vr = $billing->verifyBinance($tenant, $ref, $binanceOrderId);
+        if (!empty($vr['success'])) {
+            $notice = Lang::t('sub_paid');
+            $noticeType = 'success';
+        } else {
+            $notice = Lang::t('bnc_err_' . ($vr['error_type'] ?? 'not_found'));
+            $noticeType = 'danger';
+            // Re-show the panel so the tenant can retry with a corrected ID.
+            $binancePanel = [
+                'pay_id' => (string) ($config['billing']['binance']['pay_id'] ?? ''),
+                'amount' => number_format((float) ($_POST['amount'] ?? 0), 2),
+                'transaction_ref' => $ref,
+            ];
         }
-        // Snippe: on-phone USSD, stay here with a "check your phone" notice.
-        $notice = Lang::t('sub_ussd_sent');
-        $noticeType = 'success';
     } else {
-        $notice = Lang::t('sub_failed', ['msg' => $result['message'] ?? '']);
-        $noticeType = 'danger';
+        $serviceKey = $_POST['service_key'] ?? '';
+        $months = (int) ($_POST['months'] ?? 1);
+        $gateway = $_POST['gateway'] ?? '';
+        $extra = ['phone' => trim($_POST['phone'] ?? '')];
+
+        $result = $billing->checkout($tenant, $serviceKey, $months, $gateway, $extra);
+
+        if (!empty($result['success'])) {
+            if (!empty($result['binance_manual'])) {
+                // Show the "send USDT to our Binance ID + paste Order ID" panel.
+                $binancePanel = [
+                    'pay_id' => (string) ($result['pay_id'] ?? ''),
+                    'amount' => number_format((float) ($result['amount'] ?? 0), 2),
+                    'transaction_ref' => (string) ($result['transaction_ref'] ?? ''),
+                ];
+            } elseif (!empty($result['redirect_url'])) {
+                // Crypto gateways: bounce the tenant to the hosted invoice.
+                header('Location: ' . $result['redirect_url']);
+                exit;
+            } else {
+                // Snippe: on-phone USSD, stay here with a "check your phone" notice.
+                $notice = Lang::t('sub_ussd_sent');
+                $noticeType = 'success';
+            }
+        } else {
+            $notice = Lang::t('sub_failed', ['msg' => $result['message'] ?? '']);
+            $noticeType = 'danger';
+        }
     }
 }
 
@@ -84,6 +113,62 @@ require __DIR__ . '/includes/dash_header.php';
 </div>
 <?php endif; ?>
 
+<?php if ($binancePanel !== null): ?>
+<!-- Binance "internal transfer" panel: send USDT to our Binance ID, then verify. -->
+<div class="card bnc-panel" style="max-width:520px;margin:0 auto 24px">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+    <div class="card-icon" style="background:#F0B90B;color:#181A20"><i class="fa-solid fa-b"></i></div>
+    <div>
+      <h3 style="margin:0"><?php e('bnc_title'); ?></h3>
+      <div style="font-size:.9rem;color:var(--text-muted)"><?php e('bnc_send_note'); ?></div>
+    </div>
+  </div>
+
+  <div class="bnc-amt">
+    <span class="pt-label"><?php e('bnc_amount'); ?></span>
+    <span class="pt-amt"><?= htmlspecialchars($binancePanel['amount']) ?> USDT</span>
+  </div>
+
+  <div class="pay-field" style="margin-top:14px">
+    <span class="pay-flabel"><?php e('bnc_pay_id'); ?></span>
+    <div class="bnc-idrow">
+      <input type="text" class="form-control" id="bncPayId" value="<?= htmlspecialchars($binancePanel['pay_id']) ?>" readonly>
+      <button type="button" class="btn btn-secondary" onclick="bncCopy()"><i class="fa-solid fa-copy"></i></button>
+    </div>
+    <?php if ($binancePanel['pay_id'] === ''): ?>
+      <p style="margin-top:7px;font-size:.82rem;color:var(--danger)"><i class="fa-solid fa-triangle-exclamation"></i> <?php e('bnc_no_id'); ?></p>
+    <?php endif; ?>
+  </div>
+
+  <form method="post" action="subscription.php" style="margin-top:16px">
+    <?= Csrf::field() ?>
+    <input type="hidden" name="action" value="binance_verify">
+    <input type="hidden" name="transaction_ref" value="<?= htmlspecialchars($binancePanel['transaction_ref']) ?>">
+    <input type="hidden" name="amount" value="<?= htmlspecialchars($binancePanel['amount']) ?>">
+    <div class="pay-field">
+      <span class="pay-flabel"><?php e('bnc_order_id'); ?></span>
+      <input type="text" class="form-control" name="binance_order_id" placeholder="e.g. 381126275..." required>
+    </div>
+    <button class="btn btn-primary btn-block btn-lg" type="submit" style="margin-top:14px">
+      <i class="fa-solid fa-circle-check"></i> <?php e('bnc_verify'); ?>
+    </button>
+  </form>
+
+  <ol class="bnc-steps">
+    <li><?php e('bnc_step1'); ?></li>
+    <li><?php e('bnc_step2'); ?></li>
+    <li><?php e('bnc_step3'); ?></li>
+  </ol>
+</div>
+<script>
+function bncCopy(){
+  var f = document.getElementById('bncPayId'); if(!f) return;
+  f.select(); f.setSelectionRange(0, 99999);
+  try { navigator.clipboard.writeText(f.value); } catch(e) { document.execCommand('copy'); }
+}
+</script>
+<?php endif; ?>
+
 <div class="grid grid-2">
   <?php foreach ($plans as $plan): $key = $plan['service_key']; $active = $gate[$key] ?? false;
         $svcState = $stateMap[$key] ?? 'locked';
@@ -111,41 +196,70 @@ require __DIR__ . '/includes/dash_header.php';
       </p>
     <?php endif; ?>
 
+    <?php $amt = [
+        1  => money((float) $plan['price_monthly']),
+        3  => money((float) $plan['price_monthly'] * 3),
+        6  => money((float) $plan['price_monthly'] * 6),
+        12 => money((float) $plan['price_yearly']),
+    ]; ?>
     <form method="post" action="subscription.php" class="checkout-form">
       <?= Csrf::field() ?>
       <input type="hidden" name="service_key" value="<?= htmlspecialchars($key) ?>">
+      <input type="hidden" name="months" value="1" class="months-input">
+      <input type="hidden" name="gateway" value="nowpayments" class="gateway-input">
 
-      <div class="form-group">
-        <label><?php e('sub_choose_period'); ?></label>
-        <select class="form-control period-select" name="months"
-                data-m1="<?= money((float) $plan['price_monthly']) ?>"
-                data-m3="<?= money((float) $plan['price_monthly'] * 3) ?>"
-                data-m6="<?= money((float) $plan['price_monthly'] * 6) ?>"
-                data-m12="<?= money((float) $plan['price_yearly']) ?>">
-          <option value="1" data-amt="<?= money((float) $plan['price_monthly']) ?>"><?php e('sub_1m'); ?> — <?= money((float) $plan['price_monthly']) ?></option>
-          <option value="3" data-amt="<?= money((float) $plan['price_monthly'] * 3) ?>"><?php e('sub_3m'); ?> — <?= money((float) $plan['price_monthly'] * 3) ?></option>
-          <option value="6" data-amt="<?= money((float) $plan['price_monthly'] * 6) ?>"><?php e('sub_6m'); ?> — <?= money((float) $plan['price_monthly'] * 6) ?></option>
-          <option value="12" data-amt="<?= money((float) $plan['price_yearly']) ?>"><?php e('sub_12m'); ?> — <?= money((float) $plan['price_yearly']) ?></option>
-        </select>
+      <div class="pay-field">
+        <span class="pay-flabel"><?php e('sub_choose_period'); ?></span>
+        <div class="pay-periods">
+          <?php foreach ([1 => 'sub_1m', 3 => 'sub_3m', 6 => 'sub_6m', 12 => 'sub_12m'] as $mo => $lk): ?>
+          <button type="button" class="pay-period<?= $mo === 1 ? ' active' : '' ?>" data-m="<?= $mo ?>" data-amt="<?= htmlspecialchars($amt[$mo], ENT_QUOTES) ?>">
+            <?php if ($mo === 12): ?><span class="pp-badge"><?php e('sub_save20'); ?></span><?php endif; ?>
+            <span class="pp-t"><?php e($lk); ?></span>
+            <span class="pp-a"><?= htmlspecialchars($amt[$mo]) ?></span>
+          </button>
+          <?php endforeach; ?>
+        </div>
       </div>
 
-      <div class="form-group">
-        <label><?php e('sub_choose_gateway'); ?></label>
-        <select class="form-control gateway-select" name="gateway">
-          <option value="nowpayments"><?php e('sub_gw_nowpayments'); ?></option>
-          <option value="binance"><?php e('sub_gw_binance'); ?></option>
-          <option value="snippe"><?php e('sub_gw_snippe'); ?></option>
-        </select>
+      <div class="pay-field">
+        <span class="pay-flabel"><?php e('sub_choose_gateway'); ?></span>
+        <div class="pay-methods2">
+          <button type="button" class="pay-method2 active" data-gw="nowpayments">
+            <span class="pm-ico usdt"><i class="fa-brands fa-bitcoin"></i></span>
+            <span class="pm-body"><span class="pm-n">USDT</span><span class="pm-s">NOWPayments</span></span>
+            <span class="pm-check"><i class="fa-solid fa-check"></i></span>
+          </button>
+          <button type="button" class="pay-method2" data-gw="binance">
+            <span class="pm-ico binance"><i class="fa-solid fa-b"></i></span>
+            <span class="pm-body"><span class="pm-n">Binance</span><span class="pm-s">USDT</span></span>
+            <span class="pm-check"><i class="fa-solid fa-check"></i></span>
+          </button>
+          <button type="button" class="pay-method2" data-gw="cryptomus">
+            <span class="pm-ico usdt"><i class="fa-solid fa-coins"></i></span>
+            <span class="pm-body"><span class="pm-n">Cryptomus</span><span class="pm-s">USDT · BTC</span></span>
+            <span class="pm-check"><i class="fa-solid fa-check"></i></span>
+          </button>
+          <button type="button" class="pay-method2" data-gw="snippe">
+            <span class="pm-ico mobile"><i class="fa-solid fa-mobile-screen-button"></i></span>
+            <span class="pm-body"><span class="pm-n"><?php e('sub_gw_mobile'); ?></span><span class="pm-s">M-Pesa · Tigo · Airtel</span></span>
+            <span class="pm-check"><i class="fa-solid fa-check"></i></span>
+          </button>
+        </div>
       </div>
 
-      <div class="form-group phone-group" style="display:none">
-        <label><?php e('sub_phone_label'); ?></label>
+      <div class="pay-field phone-group" style="display:none">
+        <span class="pay-flabel"><?php e('sub_phone_label'); ?></span>
         <input class="form-control" type="tel" name="phone" value="<?= htmlspecialchars($tenant['phone'] ?? '') ?>" placeholder="+255...">
       </div>
 
-      <button class="btn btn-primary btn-block" type="submit">
+      <div class="pay-total">
+        <span class="pt-label"><?php e('sub_total'); ?></span>
+        <span class="pt-amt"><?= htmlspecialchars($amt[1]) ?></span>
+      </div>
+
+      <button class="btn btn-primary btn-block btn-lg" type="submit">
         <i class="fa-solid <?= $isSandbox ? 'fa-rocket' : 'fa-lock' ?>"></i>
-        <span class="pay-label"><?php if ($isSandbox): ?><?= htmlspecialchars(Lang::t('sandbox_go_live')) ?> — <?php endif; ?><?= htmlspecialchars(Lang::t('sub_pay', ['amount' => money((float) $plan['price_monthly'])])) ?></span>
+        <span class="pay-cta" data-tpl="<?= htmlspecialchars(Lang::t('sub_pay', ['amount' => '__AMT__']), ENT_QUOTES) ?>" data-golive="<?= $isSandbox ? '1' : '0' ?>" data-golivetxt="<?= htmlspecialchars(Lang::t('sandbox_go_live'), ENT_QUOTES) ?>"><?php if ($isSandbox): ?><?= htmlspecialchars(Lang::t('sandbox_go_live')) ?> — <?php endif; ?><?= htmlspecialchars(Lang::t('sub_pay', ['amount' => $amt[1]])) ?></span>
       </button>
     </form>
   </div>
@@ -154,22 +268,42 @@ require __DIR__ . '/includes/dash_header.php';
 
 <script>
 document.querySelectorAll('.checkout-form').forEach(function(form){
-  var period = form.querySelector('.period-select');
-  var gateway = form.querySelector('.gateway-select');
-  var phoneGroup = form.querySelector('.phone-group');
-  var payLabel = form.querySelector('.pay-label');
-  var payTpl = <?= json_encode(Lang::t('sub_pay', ['amount' => '__AMT__'])) ?>;
-  var goLivePrefix = <?= json_encode(Lang::t('sandbox_go_live')) ?> + ' — ';
-  var card = form.closest('.card');
-  var isSandbox = card && card.classList.contains('card-golive');
+  var monthsInput  = form.querySelector('.months-input');
+  var gatewayInput = form.querySelector('.gateway-input');
+  var phoneGroup   = form.querySelector('.phone-group');
+  var totalAmt     = form.querySelector('.pt-amt');
+  var cta          = form.querySelector('.pay-cta');
+  var payTpl       = cta.dataset.tpl;
+  var goLive       = cta.dataset.golive === '1';
+  var goLivePrefix = cta.dataset.golivetxt + ' — ';
 
-  function refresh(){
-    var amt = period.options[period.selectedIndex].dataset.amt;
-    payLabel.textContent = (isSandbox ? goLivePrefix : '') + payTpl.replace('__AMT__', amt);
-    phoneGroup.style.display = (gateway.value === 'snippe') ? 'block' : 'none';
+  function currentAmt(){
+    var p = form.querySelector('.pay-period.active');
+    return p ? p.dataset.amt : '';
   }
-  period.addEventListener('change', refresh);
-  gateway.addEventListener('change', refresh);
+  function refresh(){
+    var amt = currentAmt();
+    totalAmt.textContent = amt;
+    cta.textContent = (goLive ? goLivePrefix : '') + payTpl.replace('__AMT__', amt);
+    phoneGroup.style.display = (gatewayInput.value === 'snippe') ? 'block' : 'none';
+  }
+
+  form.querySelectorAll('.pay-period').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      form.querySelectorAll('.pay-period').forEach(function(b){ b.classList.remove('active'); });
+      btn.classList.add('active');
+      monthsInput.value = btn.dataset.m;
+      refresh();
+    });
+  });
+  form.querySelectorAll('.pay-method2').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      form.querySelectorAll('.pay-method2').forEach(function(b){ b.classList.remove('active'); });
+      btn.classList.add('active');
+      gatewayInput.value = btn.dataset.gw;
+      refresh();
+    });
+  });
   refresh();
 });
 

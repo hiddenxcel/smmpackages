@@ -48,6 +48,28 @@ class Ticket extends BaseModel
         return (int) self::db()->lastInsertId();
     }
 
+    /**
+     * Create a structured (SMMGen-style) ticket: category (ai|human),
+     * subcategory (refill|cancel|...), and the panel order id it's about.
+     */
+    public static function createStructured(
+        int $tenantId,
+        ?string $customerIdentifier,
+        string $category,
+        ?string $subcategory,
+        ?string $orderRef,
+        string $subject,
+        string $priority = 'normal'
+    ): int {
+        $stmt = self::db()->prepare(
+            "INSERT INTO tickets (tenant_id, customer_identifier, category, subcategory, order_ref, subject, status, priority)
+             VALUES (?, ?, ?, ?, ?, ?, 'open', ?)"
+        );
+        $stmt->execute([$tenantId, $customerIdentifier, $category, $subcategory, $orderRef, $subject, $priority]);
+
+        return (int) self::db()->lastInsertId();
+    }
+
     public static function setStatus(int $id, int $tenantId, string $status): bool
     {
         $stmt = self::db()->prepare('UPDATE tickets SET status = ? WHERE id = ? AND tenant_id = ?');

@@ -98,6 +98,11 @@ class OrderBotHandler
                 WalletTopup::onPhone($this->tenant, $this->wa, $from, $text, $ctx);
                 break;
 
+            case 'AWAITING_BINANCE_ORDER':
+                // Customer is reporting their Binance Order ID for verification.
+                WalletTopup::verifyBinanceOrder($this->tenant, $this->wa, $from, $text, $ctx);
+                break;
+
             case 'AWAITING_PAYMENT':
                 // Waiting for the gateway webhook. A message here means the
                 // customer is checking in — reassure them.

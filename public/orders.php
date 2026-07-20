@@ -4,6 +4,11 @@ require_once __DIR__ . '/includes/bootstrap.php';
 $tenant = TenantAuth::require('login.php');
 $tenantId = (int) $tenant['id'];
 
+require_once __DIR__ . '/../app/helpers/ServiceGate.php';
+$gateSvcKey = 'order_bot';
+$gateState = ServiceGate::state($tenantId, $gateSvcKey);
+$gateBlock = $gateState === 'sandbox';   // not paid → hide operational content
+
 $orders = BotOrder::forTenant($tenantId, 200);
 $counts = BotOrder::statusCounts($tenantId);
 $total = array_sum($counts);
@@ -14,6 +19,8 @@ $currency = BotSettings::get($tenantId, 'order')['shop']['currency'] ?? 'USD';
 $pageTitle = Lang::t('orders_title');
 $activeSide = 'orders';
 require __DIR__ . '/includes/dash_header.php';
+require __DIR__ . '/includes/gate_banner.php';
+if ($gateBlock) { require __DIR__ . '/includes/dash_footer.php'; return; }
 
 $payChip = static function (?string $s): string {
     return match ($s) {

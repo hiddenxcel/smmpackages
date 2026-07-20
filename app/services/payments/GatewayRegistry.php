@@ -40,12 +40,28 @@ class GatewayRegistry
             ],
         ],
         'binance' => [
-            'label' => 'Binance Pay (Crypto)',
+            'label' => 'Binance (USDT — Internal Transfer)',
             'type' => 'crypto',
             'ready' => true,
+            // Manual/verify: no webhook. The customer sends USDT to the tenant's
+            // Binance ID and reports the Binance Order ID, verified via the Spot
+            // API. Needs a Binance ID (stored in BotSettings shop.binance_pay_id).
+            'verify' => true,
             'fields' => [
-                ['name' => 'api_key', 'label' => 'API key', 'store' => 'api_key'],
-                ['name' => 'webhook_secret', 'label' => 'API secret', 'store' => 'webhook_secret'],
+                ['name' => 'api_key', 'label' => 'Binance Spot API key (read)', 'store' => 'api_key'],
+                ['name' => 'webhook_secret', 'label' => 'Binance Spot API secret', 'store' => 'webhook_secret'],
+            ],
+        ],
+
+        'cryptomus' => [
+            'label' => 'Cryptomus (USDT / Crypto)',
+            'type' => 'crypto',
+            'ready' => true,
+            // Cryptomus needs a Merchant UUID + Payment API key. We reuse the two
+            // secret slots: api_key = Payment API key, webhook_secret = Merchant UUID.
+            'fields' => [
+                ['name' => 'api_key', 'label' => 'Payment API key', 'store' => 'api_key'],
+                ['name' => 'webhook_secret', 'label' => 'Merchant UUID', 'store' => 'webhook_secret'],
             ],
         ],
 
@@ -124,6 +140,12 @@ class GatewayRegistry
     public static function isReady(string $code): bool
     {
         return !empty(self::GATEWAYS[$code]['ready']);
+    }
+
+    /** True if this gateway is manual/verify (no webhook; payer reports an ID). */
+    public static function isVerify(string $code): bool
+    {
+        return !empty(self::GATEWAYS[$code]['verify']);
     }
 
     public static function label(string $code): string

@@ -21,6 +21,7 @@ require_once __DIR__ . '/../../app/models/TenantPanel.php';
 require_once __DIR__ . '/../../app/services/PanelDetector.php';
 require_once __DIR__ . '/../../app/models/TenantWhatsApp.php';
 require_once __DIR__ . '/../../app/models/BotOrder.php';
+require_once __DIR__ . '/../../app/models/BotService.php';
 require_once __DIR__ . '/../../app/models/PlatformNumber.php';
 require_once __DIR__ . '/../../app/models/NumberRental.php';
 require_once __DIR__ . '/../../app/models/GuaranteeRule.php';

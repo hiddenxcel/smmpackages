@@ -9,7 +9,7 @@ require_once __DIR__ . '/BaseModel.php';
  */
 class SubscriptionPayment extends BaseModel
 {
-    public const GATEWAYS = ['nowpayments', 'binance', 'snippe'];
+    public const GATEWAYS = ['nowpayments', 'binance', 'snippe', 'cryptomus'];
 
     public static function find(int $id): ?array
     {
@@ -25,6 +25,24 @@ class SubscriptionPayment extends BaseModel
         $stmt->execute([$ref]);
 
         return $stmt->fetch() ?: null;
+    }
+
+    /** Replay guard for the Binance verify flow: has this Order ID been used? */
+    public static function binanceOrderUsed(string $binanceOrderId): bool
+    {
+        $stmt = self::db()->prepare(
+            'SELECT id FROM subscription_payments WHERE binance_order_id = ? LIMIT 1'
+        );
+        $stmt->execute([$binanceOrderId]);
+
+        return $stmt->fetch() !== false;
+    }
+
+    /** Record the verified Binance Order ID on a payment (replay evidence). */
+    public static function setBinanceOrder(int $paymentId, string $binanceOrderId): void
+    {
+        self::db()->prepare('UPDATE subscription_payments SET binance_order_id = ? WHERE id = ?')
+            ->execute([$binanceOrderId, $paymentId]);
     }
 
     public static function forTenant(int $tenantId): array

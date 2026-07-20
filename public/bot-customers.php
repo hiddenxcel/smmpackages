@@ -6,10 +6,17 @@ require_once __DIR__ . '/../app/models/BotSettings.php';
 $tenant = TenantAuth::require('login.php');
 $tenantId = (int) $tenant['id'];
 
+require_once __DIR__ . '/../app/helpers/ServiceGate.php';
+$gateSvcKey = 'order_bot';
+$gateState = ServiceGate::state($tenantId, $gateSvcKey);
+$canWrite = $gateState === 'active';
+$gateBlock = $gateState === 'sandbox';
+
 $notice = null;
 $noticeType = 'success';
 
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+// Only an active (paid) Order Bot may adjust wallets; expired = read-only.
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && $canWrite) {
     Csrf::verify();
     $action = $_POST['action'] ?? '';
 
@@ -41,6 +48,8 @@ $currency = BotSettings::get($tenantId, 'order')['shop']['currency'] ?? 'USD';
 $pageTitle = 'Customers & Wallets';
 $activeSide = 'bot-customers';
 require __DIR__ . '/includes/dash_header.php';
+require __DIR__ . '/includes/gate_banner.php';
+if ($gateBlock) { require __DIR__ . '/includes/dash_footer.php'; return; }
 
 $money = static fn ($v) => $currency . ' ' . number_format((float) $v, 2);
 ?>
@@ -71,7 +80,7 @@ $money = static fn ($v) => $currency . ' ' . number_format((float) $v, 2);
         <thead>
           <tr style="text-align:left;color:var(--text-muted)">
             <th style="padding:8px">Customer</th><th style="padding:8px">Balance</th>
-            <th style="padding:8px">Spent</th><th style="padding:8px">Orders</th><th style="padding:8px">Adjust</th>
+            <th style="padding:8px">Spent</th><th style="padding:8px">Orders</th><?php if ($canWrite): ?><th style="padding:8px">Adjust</th><?php endif; ?>
           </tr>
         </thead>
         <tbody>
@@ -84,6 +93,7 @@ $money = static fn ($v) => $currency . ' ' . number_format((float) $v, 2);
             <td style="padding:8px;font-weight:700"><?= $money($c['balance']) ?></td>
             <td style="padding:8px;color:var(--text-muted)"><?= $money($c['total_spent']) ?></td>
             <td style="padding:8px"><?= (int) $c['order_count'] ?></td>
+            <?php if ($canWrite): ?>
             <td style="padding:8px">
               <form method="post" style="display:flex;gap:6px;align-items:center">
                 <?= Csrf::field() ?>
@@ -93,6 +103,7 @@ $money = static fn ($v) => $currency . ' ' . number_format((float) $v, 2);
                 <button class="btn btn-primary" type="submit" style="padding:6px 12px">Apply</button>
               </form>
             </td>
+            <?php endif; ?>
           </tr>
         <?php endforeach; ?>
         </tbody>

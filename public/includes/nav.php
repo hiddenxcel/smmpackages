@@ -1,6 +1,29 @@
 <?php
-// Dashboard sidebar. Expects $activeSide. Pages not yet built are disabled with a "Soon" chip.
+// Dashboard sidebar. Expects $activeSide and $tenant (authed row).
+//
+// The sidebar is SUBSCRIPTION-AWARE (à la carte): a service's pages only appear
+// once that service is relevant. A brand-new / sandbox reseller sees a small
+// "setup" menu (dashboard, channel, panel, order-bot basics, billing) — the rest
+// unlocks per service after they pay, so the value stays behind the paywall.
+//   - order_bot  live  → Payment Gateways, Customers, Orders
+//   - support_bot live → Support Bot, Templates, Guarantee
+//   - any service live → Growth (Broadcast, Referrals), Telegram (Soon)
+// Pages not yet built stay disabled with a "Soon" chip.
+
 $soon = '<span style="margin-left:auto;font-size:.62rem;font-weight:700;background:rgba(255,255,255,.08);color:var(--gray-500);padding:2px 7px;border-radius:999px">' . htmlspecialchars(Lang::t('soon')) . '</span>';
+
+// --- Subscription state drives what the sidebar shows ---
+$navTid = (int) ($tenant['id'] ?? 0);
+$navState = $navTid ? Subscription::stateMap($navTid) : [];
+// accessible for setup/self-test (sandbox OR active)
+$svcOn = fn (string $k): bool => in_array($navState[$k] ?? 'locked', ['active', 'sandbox'], true);
+// paid & live (active only)
+$svcLive = fn (string $k): bool => ($navState[$k] ?? '') === 'active';
+
+$orderOn     = $svcOn('order_bot');       // sandbox or paid → show setup pages
+$orderLive   = $svcLive('order_bot');     // paid → show operational pages
+$supportLive = $svcLive('support_bot');
+$anyLive     = $svcLive('order_bot') || $svcLive('support_bot') || $svcLive('ai_tickets') || $svcLive('number_rental');
 
 function sideLink(string $key, string $href, string $icon, string $label, bool $enabled = true): void
 {
@@ -12,6 +35,12 @@ function sideLink(string $key, string $href, string $icon, string $label, bool $
     } else {
         echo '<a class="side-link" data-label="' . $lbl . '" style="opacity:.45;cursor:default" onclick="return false"><i class="' . $icon . '"></i> <span>' . $lbl . ' ' . $soon . '</span></a>';
     }
+}
+
+function sideGroup(string $key, string $labelKey): void
+{
+    echo '<div class="sidebar-group" data-group="' . $key . '">' . htmlspecialchars(Lang::t($labelKey))
+       . '<i class="fa-solid fa-chevron-down grp-caret"></i></div>';
 }
 ?>
 <aside class="sidebar" id="sidebar">
@@ -26,51 +55,52 @@ function sideLink(string $key, string $href, string $icon, string $label, bool $
     <input type="search" name="q" placeholder="<?= htmlspecialchars(Lang::t('search_ph')) ?>" autocomplete="off">
   </form>
 
-  <?php
-  // Group header with a collapse caret + data-group key (JS toggles the items below).
-  function sideGroup(string $key, string $labelKey): void {
-      echo '<div class="sidebar-group" data-group="' . $key . '">' . htmlspecialchars(Lang::t($labelKey))
-         . '<i class="fa-solid fa-chevron-down grp-caret"></i></div>';
-  }
-  ?>
-
   <?php sideGroup('overview', 'side_overview'); ?>
   <div class="side-group-items">
     <?php sideLink('dashboard', 'index.php', 'fa-solid fa-chart-line', Lang::t('side_dashboard')); ?>
   </div>
 
-  <?php /* Channels: how bots connect to the outside world. */ ?>
+  <?php /* Channels: WhatsApp is always needed for setup; Telegram unlocks once live. */ ?>
   <?php sideGroup('channels', 'side_channels'); ?>
   <div class="side-group-items">
     <?php sideLink('whatsapp', 'whatsapp.php', 'fa-brands fa-whatsapp', Lang::t('side_whatsapp'), true); ?>
-    <?php sideLink('telegram', 'telegram.php', 'fa-brands fa-telegram', Lang::t('tg_side'), true); ?>
+    <?php if ($anyLive): ?>
+      <?php sideLink('telegram', 'telegram.php', 'fa-brands fa-telegram', Lang::t('tg_side'), false); ?>
+    <?php endif; ?>
   </div>
 
-  <?php /* Panel: the SMM provider connection that fulfils orders. */ ?>
+  <?php /* Panel: the SMM provider connection that fulfils orders — needed to set up. */ ?>
   <?php sideGroup('panel', 'side_panel'); ?>
   <div class="side-group-items">
     <?php sideLink('panels', 'panels.php', 'fa-solid fa-plug', Lang::t('side_panels'), true); ?>
   </div>
 
-  <?php /* ORDER BOT: everything the selling bot needs, in one place. */ ?>
+  <?php /* ORDER BOT: setup pages while on (sandbox/active); operational pages only when paid. */ ?>
+  <?php if ($orderOn): ?>
   <?php sideGroup('orderbot', 'side_orderbot_grp'); ?>
   <div class="side-group-items">
     <?php sideLink('order-bot', 'order-bot.php', 'fa-solid fa-cart-shopping', Lang::t('side_order_bot'), true); ?>
     <?php sideLink('bot-services', 'bot-services.php', 'fa-solid fa-tags', Lang::t('side_bot_services'), true); ?>
-    <?php sideLink('bot-gateways', 'bot-gateways.php', 'fa-solid fa-money-bill-wave', Lang::t('side_bot_gateways'), true); ?>
-    <?php sideLink('bot-customers', 'bot-customers.php', 'fa-solid fa-users', Lang::t('side_bot_customers'), true); ?>
-    <?php sideLink('orders', 'orders.php', 'fa-solid fa-box', Lang::t('side_orders'), true); ?>
+    <?php if ($orderLive): ?>
+      <?php sideLink('bot-gateways', 'bot-gateways.php', 'fa-solid fa-money-bill-wave', Lang::t('side_bot_gateways'), true); ?>
+      <?php sideLink('bot-customers', 'bot-customers.php', 'fa-solid fa-users', Lang::t('side_bot_customers'), true); ?>
+      <?php sideLink('orders', 'orders.php', 'fa-solid fa-box', Lang::t('side_orders'), true); ?>
+    <?php endif; ?>
   </div>
+  <?php endif; ?>
 
-  <?php /* SUPPORT BOT: only the support/after-sales tools. */ ?>
+  <?php /* SUPPORT BOT: unlocks only when the support_bot service is paid. */ ?>
+  <?php if ($supportLive): ?>
   <?php sideGroup('supportbot', 'side_supportbot_grp'); ?>
   <div class="side-group-items">
     <?php sideLink('support-bot', 'support-bot.php', 'fa-solid fa-headset', Lang::t('side_support_bot'), true); ?>
     <?php sideLink('templates', 'templates.php', 'fa-solid fa-message', Lang::t('side_templates'), true); ?>
     <?php sideLink('guarantee', 'guarantee-rules.php', 'fa-solid fa-recycle', Lang::t('side_guarantee'), true); ?>
   </div>
+  <?php endif; ?>
 
-  <?php /* Growth: reach customers + earn from referrals. */ ?>
+  <?php /* Growth: reach customers + earn from referrals — once at least one service is live. */ ?>
+  <?php if ($anyLive): ?>
   <?php sideGroup('growth', 'side_growth_grp'); ?>
   <div class="side-group-items">
     <?php sideLink('broadcast', 'broadcast.php', 'fa-solid fa-bullhorn', Lang::t('bc_side'), true); ?>
@@ -79,9 +109,10 @@ function sideLink(string $key, string $href, string $icon, string $label, bool $
 
   <?php sideGroup('tickets', 'side_tickets_grp'); ?>
   <div class="side-group-items">
-    <?php sideLink('tickets', 'tickets.php', 'fa-solid fa-ticket', Lang::t('side_tickets'), true); ?>
-    <?php sideLink('ai', 'settings-ai.php', 'fa-solid fa-robot', Lang::t('side_ai'), true); ?>
+    <?php sideLink('tickets', 'tickets.php', 'fa-solid fa-ticket', Lang::t('side_tickets'), false); ?>
+    <?php sideLink('ai', 'settings-ai.php', 'fa-solid fa-robot', Lang::t('side_ai'), false); ?>
   </div>
+  <?php endif; ?>
 
   <?php sideGroup('billing', 'side_billing'); ?>
   <div class="side-group-items">

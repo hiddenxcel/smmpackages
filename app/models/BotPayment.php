@@ -67,6 +67,25 @@ class BotPayment extends BaseModel
         return $stmt->execute([$ref, $id]);
     }
 
+    /** Replay guard for Binance verify: has this Order ID been used (this tenant)? */
+    public static function binanceOrderUsed(int $tenantId, string $binanceOrderId): bool
+    {
+        $stmt = self::db()->prepare(
+            'SELECT id FROM bot_payments WHERE tenant_id = ? AND binance_order_id = ? LIMIT 1'
+        );
+        $stmt->execute([$tenantId, $binanceOrderId]);
+
+        return $stmt->fetch() !== false;
+    }
+
+    /** Record the verified Binance Order ID on a payment (replay evidence). */
+    public static function setBinanceOrder(int $id, string $binanceOrderId): bool
+    {
+        $stmt = self::db()->prepare('UPDATE bot_payments SET binance_order_id = ? WHERE id = ?');
+
+        return $stmt->execute([$binanceOrderId, $id]);
+    }
+
     /**
      * Transition a pending payment to 'success' exactly once.
      * Returns true ONLY on the first successful transition (replay guard):

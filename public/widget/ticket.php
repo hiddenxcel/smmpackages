@@ -52,9 +52,31 @@ if (!RateLimit::hit("widget:{$tenantId}:{$ip}", 'ticket', 20, 300)) {
 }
 
 $input = json_decode(file_get_contents('php://input') ?: '', true) ?: [];
+$action = $input['action'] ?? 'message';
+$customer = isset($input['customer']) ? mb_substr(trim((string) $input['customer']), 0, 190) : null;
+
+// --- Structured create: Category -> Subcategory -> Order ID form ---
+if ($action === 'create') {
+    $category = ($input['category'] ?? 'ai') === 'human' ? 'human' : 'ai';
+    $subcategory = isset($input['subcategory']) ? mb_substr(trim((string) $input['subcategory']), 0, 40) : null;
+    $orderRef = mb_substr(trim((string) ($input['order_ref'] ?? '')), 0, 60);
+    $message = mb_substr(trim((string) ($input['message'] ?? '')), 0, 2000);
+
+    if ($orderRef === '') {
+        http_response_code(400);
+        echo json_encode(['ok' => false, 'message' => 'Order ID is required']);
+        exit;
+    }
+
+    echo json_encode(TicketService::createFromForm(
+        $tenantId, $category, $subcategory, $orderRef, $customer, $message
+    ));
+    exit;
+}
+
+// --- Follow-up message on an existing ticket (chat) ---
 $message = trim($input['message'] ?? '');
 $ticketId = isset($input['ticket_id']) ? (int) $input['ticket_id'] : null;
-$customer = isset($input['customer']) ? mb_substr(trim((string) $input['customer']), 0, 190) : null;
 
 if ($message === '') {
     http_response_code(400);

@@ -5,7 +5,9 @@ require_once __DIR__ . '/../models/Subscription.php';
 require_once __DIR__ . '/../models/SubscriptionPayment.php';
 require_once __DIR__ . '/payments/NowPaymentsClient.php';
 require_once __DIR__ . '/payments/BinancePayClient.php';
+require_once __DIR__ . '/payments/BinanceVerifyClient.php';
 require_once __DIR__ . '/payments/SnippeClient.php';
+require_once __DIR__ . '/payments/CryptomusClient.php';
 require_once __DIR__ . '/ReferralReward.php';
 
 /**
@@ -97,20 +99,55 @@ class SubscriptionBilling
                 ->execute([$creditApplied, $paymentId]);
         }
 
+        // Binance uses the "internal transfer" (no-KYB) flow: no gateway call
+        // here. We keep the payment pending and render a panel showing our
+        // Binance ID; the tenant sends USDT (1:1 with the USD amount) and then
+        // verifies via verifyBinance() below.
+        if ($gateway === 'binance') {
+            return [
+                'success' => true,
+                'binance_manual' => true,
+                'pay_id' => (string) ($this->config['billing']['binance']['pay_id'] ?? ''),
+                'amount' => $amount,
+                'currency' => 'USDT',
+                'transaction_ref' => $transactionRef,
+            ];
+        }
+
         $client = $this->gatewayClient($gateway);
         $baseUrl = rtrim($this->config['app']['url'] ?? '', '/');
 
+        // Per-gateway currency/amount: NOWPayments takes USD; Binance Pay settles
+        // in USDT; Snippe is Tanzania mobile money and must be charged in TZS
+        // (converted from the USD price). The DB payment stays in USD for accounting.
+        $gwAmount = $amount;
+        $gwCurrency = $currency;
+        if ($gateway === 'binance') {
+            $gwCurrency = 'USDT';
+        } elseif ($gateway === 'snippe') {
+            $rate = (float) ($this->config['billing']['snippe']['usd_to_tzs'] ?? 2600);
+            $gwCurrency = 'TZS';
+            $gwAmount = (int) ceil($amount * $rate);
+        }
+
+        // Snippe requires a non-empty lastname. We only store a single business
+        // name, so split it (or reuse it) to always send something valid.
+        $name = trim((string) ($tenant['business_name'] ?? 'Tenant'));
+        $nameParts = preg_split('/\s+/', $name, 2) ?: ['Tenant'];
+        $firstName = $nameParts[0] !== '' ? $nameParts[0] : 'Tenant';
+        $lastName = $nameParts[1] ?? $firstName;
+
         $data = [
-            'amount' => $amount,
-            'currency' => $currency,
+            'amount' => $gwAmount,
+            'currency' => $gwCurrency,
             'order_id' => $transactionRef,
             'description' => $plan['name'] . ' — ' . $months . ' month(s)',
             'webhook_url' => $baseUrl . '/webhooks/' . $gateway . '.php',
             'success_url' => $baseUrl . '/subscription.php?paid=1',
             'cancel_url' => $baseUrl . '/subscription.php?cancelled=1',
             'return_url' => $baseUrl . '/subscription.php?paid=1',
-            'firstname' => $tenant['business_name'] ?? 'Tenant',
-            'lastname' => '',
+            'firstname' => $firstName,
+            'lastname' => $lastName,
             'email' => $tenant['email'] ?? '',
             'phone' => $extra['phone'] ?? ($tenant['phone'] ?? ''),
         ];
@@ -127,6 +164,49 @@ class SubscriptionBilling
         }
 
         return $result;
+    }
+
+    /**
+     * Verify a Binance "internal transfer" and activate on success.
+     * The tenant reports the Binance Order ID for the USDT they sent to our
+     * Binance ID; we confirm it against our own Binance Pay history.
+     *
+     * @return array ['success'=>bool, 'message'=>string, 'error_type'=>?string]
+     */
+    public function verifyBinance(array $tenant, string $transactionRef, string $binanceOrderId): array
+    {
+        $binanceOrderId = trim($binanceOrderId);
+        if ($binanceOrderId === '') {
+            return ['success' => false, 'error_type' => 'not_found', 'message' => 'Please enter the Binance Order ID.'];
+        }
+
+        $payment = SubscriptionPayment::findByRef($transactionRef);
+        if ($payment === null || (int) $payment['tenant_id'] !== (int) $tenant['id']) {
+            return ['success' => false, 'error_type' => 'not_found', 'message' => 'Payment not found.'];
+        }
+        if (($payment['status'] ?? '') === 'success') {
+            return ['success' => true, 'message' => 'Already verified.'];
+        }
+
+        // Replay guard: this Binance Order ID must not already back a payment.
+        if (SubscriptionPayment::binanceOrderUsed($binanceOrderId)) {
+            return ['success' => false, 'error_type' => 'used', 'message' => 'This Binance Order ID has already been used.'];
+        }
+
+        $client = new BinanceVerifyClient($this->config['billing']['binance'] ?? []);
+        $result = $client->verifyOrder($binanceOrderId, (float) $payment['amount']);
+
+        if (empty($result['success'])) {
+            // Do not fail the payment — let the tenant retry with a corrected ID.
+            return ['success' => false, 'error_type' => $result['error_type'] ?? 'not_found', 'message' => $result['message'] ?? 'Verification failed.'];
+        }
+
+        // Record the Order ID first (unique column doubles as the replay guard),
+        // then activate via the shared, idempotent fulfil().
+        SubscriptionPayment::setBinanceOrder((int) $payment['id'], $binanceOrderId);
+        $this->fulfil($transactionRef, json_encode(['binance_order_id' => $binanceOrderId, 'verified' => $result]));
+
+        return ['success' => true, 'message' => 'Payment verified.'];
     }
 
     /**
@@ -168,6 +248,7 @@ class SubscriptionBilling
             'nowpayments' => new NowPaymentsClient($this->config['billing']['nowpayments'] ?? []),
             'binance'     => new BinancePayClient($this->config['billing']['binance'] ?? []),
             'snippe'      => new SnippeClient($this->config['billing']['snippe'] ?? []),
+            'cryptomus'   => new CryptomusClient($this->config['billing']['cryptomus'] ?? []),
             default       => throw new InvalidArgumentException("Unknown gateway: {$gateway}"),
         };
     }

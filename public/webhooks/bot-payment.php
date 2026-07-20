@@ -23,6 +23,7 @@ require_once __DIR__ . '/../../app/services/WalletTopup.php';
 require_once __DIR__ . '/../../app/services/payments/SnippeClient.php';
 require_once __DIR__ . '/../../app/services/payments/NowPaymentsClient.php';
 require_once __DIR__ . '/../../app/services/payments/BinancePayClient.php';
+require_once __DIR__ . '/../../app/services/payments/CryptomusClient.php';
 
 $body = file_get_contents('php://input') ?: '';
 $data = json_decode($body, true) ?: [];
@@ -77,6 +78,13 @@ if ($gateway === 'nowpayments') {
         $sigOk = (new BinancePayClient(['api_key' => $apiKey, 'api_secret' => $secret]))->verifySignature($body, $ts, $nonce, $sig);
     }
     $status = $data['bizStatus'] ?? ($data['data']['bizStatus'] ?? null);
+} elseif ($gateway === 'cryptomus') {
+    // Cryptomus: sign = md5(base64(body-without-sign)+api_key), in the body.
+    // Stored slots: api_key = Payment API key, webhook_secret = Merchant UUID.
+    if ($apiKey !== '') {
+        $sigOk = (new CryptomusClient(['api_key' => $apiKey, 'merchant' => $secret]))->verifyWebhook($data);
+    }
+    $status = $data['status'] ?? null;
 } else {
     // Snippe (default): HMAC-SHA256 over "{ts}.{body}"; status in status.
     if ($secret !== '') {
@@ -95,7 +103,7 @@ if (!$sigOk) {
 
 // Normalise "paid" across gateways (Snippe: success/paid; NOWPayments:
 // finished/confirmed; Binance: PAY_SUCCESS/SUCCESS).
-$paid = in_array(strtolower((string) $status), ['success', 'completed', 'paid', 'finished', 'confirmed', 'pay_success'], true);
+$paid = in_array(strtolower((string) $status), ['success', 'completed', 'paid', 'paid_over', 'finished', 'confirmed', 'pay_success'], true);
 
 if ($paid) {
     WalletTopup::completeAfterPayment((int) $payment['id']);
