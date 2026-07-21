@@ -12,6 +12,7 @@ require_once __DIR__ . '/payments/NowPaymentsClient.php';
 require_once __DIR__ . '/payments/BinancePayClient.php';
 require_once __DIR__ . '/payments/BinanceVerifyClient.php';
 require_once __DIR__ . '/payments/CryptomusClient.php';
+require_once __DIR__ . '/payments/HeleketClient.php';
 
 /**
  * WalletTopup — the wallet top-up + gateway payment sub-flow.
@@ -447,6 +448,8 @@ class WalletTopup
             'binance' => new BinancePayClient(['api_key' => $key, 'api_secret' => $secret]),
             // Cryptomus: api_key = Payment API key, webhook_secret slot = Merchant UUID.
             'cryptomus' => new CryptomusClient(['api_key' => $key, 'merchant' => $secret]),
+            // Heleket: same shape as Cryptomus.
+            'heleket' => new HeleketClient(['api_key' => $key, 'merchant' => $secret]),
             default => new SnippeClient(['api_key' => $key, 'webhook_secret' => $secret]),
         };
     }

@@ -24,6 +24,7 @@ require_once __DIR__ . '/../../app/services/payments/SnippeClient.php';
 require_once __DIR__ . '/../../app/services/payments/NowPaymentsClient.php';
 require_once __DIR__ . '/../../app/services/payments/BinancePayClient.php';
 require_once __DIR__ . '/../../app/services/payments/CryptomusClient.php';
+require_once __DIR__ . '/../../app/services/payments/HeleketClient.php';
 
 $body = file_get_contents('php://input') ?: '';
 $data = json_decode($body, true) ?: [];
@@ -83,6 +84,13 @@ if ($gateway === 'nowpayments') {
     // Stored slots: api_key = Payment API key, webhook_secret = Merchant UUID.
     if ($apiKey !== '') {
         $sigOk = (new CryptomusClient(['api_key' => $apiKey, 'merchant' => $secret]))->verifyWebhook($data);
+    }
+    $status = $data['status'] ?? null;
+} elseif ($gateway === 'heleket') {
+    // Heleket: same contract as Cryptomus (sign = md5(base64(body-without-sign)+api_key)).
+    // Stored slots: api_key = Payment API key, webhook_secret = Merchant UUID.
+    if ($apiKey !== '') {
+        $sigOk = (new HeleketClient(['api_key' => $apiKey, 'merchant' => $secret]))->verifyWebhook($data);
     }
     $status = $data['status'] ?? null;
 } else {

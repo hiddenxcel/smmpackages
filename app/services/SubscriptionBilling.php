@@ -8,6 +8,7 @@ require_once __DIR__ . '/payments/BinancePayClient.php';
 require_once __DIR__ . '/payments/BinanceVerifyClient.php';
 require_once __DIR__ . '/payments/SnippeClient.php';
 require_once __DIR__ . '/payments/CryptomusClient.php';
+require_once __DIR__ . '/payments/HeleketClient.php';
 require_once __DIR__ . '/ReferralReward.php';
 
 /**
@@ -249,6 +250,7 @@ class SubscriptionBilling
             'binance'     => new BinancePayClient($this->config['billing']['binance'] ?? []),
             'snippe'      => new SnippeClient($this->config['billing']['snippe'] ?? []),
             'cryptomus'   => new CryptomusClient($this->config['billing']['cryptomus'] ?? []),
+            'heleket'     => new HeleketClient($this->config['billing']['heleket'] ?? []),
             default       => throw new InvalidArgumentException("Unknown gateway: {$gateway}"),
         };
     }

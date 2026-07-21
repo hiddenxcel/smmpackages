@@ -9,7 +9,7 @@ require_once __DIR__ . '/BaseModel.php';
  */
 class SubscriptionPayment extends BaseModel
 {
-    public const GATEWAYS = ['nowpayments', 'binance', 'snippe', 'cryptomus'];
+    public const GATEWAYS = ['nowpayments', 'binance', 'snippe', 'cryptomus', 'heleket'];
 
     public static function find(int $id): ?array
     {

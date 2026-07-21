@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS subscription_payments (
     tenant_id INT UNSIGNED NOT NULL,
     plan_id INT UNSIGNED NULL,
     subscription_id INT UNSIGNED NULL,
-    gateway ENUM('nowpayments', 'binance', 'snippe', 'cryptomus') NOT NULL,
+    gateway ENUM('nowpayments', 'binance', 'snippe', 'cryptomus', 'heleket') NOT NULL,
     transaction_ref VARCHAR(100) NOT NULL UNIQUE,
     amount DECIMAL(12,2) NOT NULL,
     currency VARCHAR(5) NOT NULL DEFAULT 'USD',

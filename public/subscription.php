@@ -239,6 +239,11 @@ function bncCopy(){
             <span class="pm-body"><span class="pm-n">Cryptomus</span><span class="pm-s">USDT · BTC</span></span>
             <span class="pm-check"><i class="fa-solid fa-check"></i></span>
           </button>
+          <button type="button" class="pay-method2" data-gw="heleket">
+            <span class="pm-ico usdt"><i class="fa-solid fa-coins"></i></span>
+            <span class="pm-body"><span class="pm-n">Heleket</span><span class="pm-s">USDT · BTC</span></span>
+            <span class="pm-check"><i class="fa-solid fa-check"></i></span>
+          </button>
           <button type="button" class="pay-method2" data-gw="snippe">
             <span class="pm-ico mobile"><i class="fa-solid fa-mobile-screen-button"></i></span>
             <span class="pm-body"><span class="pm-n"><?php e('sub_gw_mobile'); ?></span><span class="pm-s">M-Pesa · Tigo · Airtel</span></span>

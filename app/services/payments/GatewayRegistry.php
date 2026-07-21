@@ -64,6 +64,17 @@ class GatewayRegistry
                 ['name' => 'webhook_secret', 'label' => 'Merchant UUID', 'store' => 'webhook_secret'],
             ],
         ],
+        'heleket' => [
+            'label' => 'Heleket (USDT / Crypto)',
+            'type' => 'crypto',
+            'ready' => true,
+            // Heleket shares Cryptomus's API. Same two secret slots:
+            // api_key = Payment API key, webhook_secret = Merchant UUID.
+            'fields' => [
+                ['name' => 'api_key', 'label' => 'Payment API key', 'store' => 'api_key'],
+                ['name' => 'webhook_secret', 'label' => 'Merchant UUID', 'store' => 'webhook_secret'],
+            ],
+        ],
 
         // ---- Selectable now, wired later ----
         'flutterwave' => [

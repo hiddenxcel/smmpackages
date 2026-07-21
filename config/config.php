@@ -45,6 +45,11 @@ return [
             'api_key'  => Env::get('CRYPTOMUS_API_KEY', ''),
             'merchant' => Env::get('CRYPTOMUS_MERCHANT_ID', ''),
         ],
+        'heleket' => [
+            // Same contract as Cryptomus (no KYB). Hosted crypto checkout.
+            'api_key'  => Env::get('HELEKET_API_KEY', ''),
+            'merchant' => Env::get('HELEKET_MERCHANT_ID', ''),
+        ],
     ],
 
     // Meta app secret — used to verify X-Hub-Signature-256 on WhatsApp webhooks.
