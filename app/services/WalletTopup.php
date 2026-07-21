@@ -13,6 +13,7 @@ require_once __DIR__ . '/payments/BinancePayClient.php';
 require_once __DIR__ . '/payments/BinanceVerifyClient.php';
 require_once __DIR__ . '/payments/CryptomusClient.php';
 require_once __DIR__ . '/payments/HeleketClient.php';
+require_once __DIR__ . '/../helpers/BotLang.php';
 
 /**
  * WalletTopup — the wallet top-up + gateway payment sub-flow.
@@ -36,6 +37,18 @@ class WalletTopup
     private const BOT = 'order';
 
     /**
+     * Translate a key in the customer's resolved language. Static flow, so we
+     * resolve the locale from the customer row + the tenant's shop.lang default.
+     */
+    private static function t(int $tenantId, string $from, string $key, array $vars = []): string
+    {
+        $customer = BotCustomer::findByPhone($tenantId, $from);
+        $shopLang = BotSettings::get($tenantId, self::BOT)['shop']['lang'] ?? null;
+
+        return BotLang::t(BotLang::resolve($customer, $shopLang), $key, $vars);
+    }
+
+    /**
      * Begin a top-up. $ctx carries the pending order (service/link/quantity/
      * amount/shortfall). We ask for the payment phone next.
      */
@@ -45,14 +58,16 @@ class WalletTopup
 
         $gateway = self::pickGateway($tenantId);
         if ($gateway === null) {
-            $wa->sendText($from, "⚠️ Online payment isn't set up for this store yet. Please contact support to add funds.");
+            $wa->sendText($from, self::t($tenantId, $from, 'topup_no_gateway'));
             BotConversation::reset($tenantId, $from, self::BOT);
 
             return;
         }
 
         $ctx['gateway'] = $gateway['gateway'];
-        $ctx['topup_amount'] = (float) ($ctx['shortfall'] ?? $ctx['amount'] ?? 0);
+        // Prefer an explicit standalone top-up amount (Add Funds), else the order
+        // shortfall, else the full order amount.
+        $ctx['topup_amount'] = (float) ($ctx['topup_amount'] ?? $ctx['shortfall'] ?? $ctx['amount'] ?? 0);
 
         // Manual/verify gateways (Binance internal transfer): no gateway push.
         // Show the tenant's Binance ID and ask the customer for the Order ID.
@@ -69,10 +84,10 @@ class WalletTopup
             BotConversation::set($tenantId, $from, self::BOT, 'TOPUP_PHONE', $ctx);
             $wa->sendButtons(
                 $from,
-                "📱 Enter the phone to pay from (mobile money). Use *{$suggest}* or send another number.",
+                self::t($tenantId, $from, 'ask_pay_phone', ['suggest' => $suggest]),
                 [
                     ['id' => 'pay_saved:' . $suggest, 'title' => '📱 ' . $suggest],
-                    ['id' => 'pay_cancel', 'title' => 'Cancel'],
+                    ['id' => 'pay_cancel', 'title' => self::t($tenantId, $from, 'btn_cancel')],
                 ]
             );
 
@@ -93,7 +108,7 @@ class WalletTopup
         $tenantId = (int) $tenant['id'];
 
         if ($text === 'pay_cancel') {
-            $wa->sendText($from, "❌ Payment cancelled. Send *hi* to start again.");
+            $wa->sendText($from, self::t($tenantId, $from, 'payment_cancelled'));
             BotConversation::reset($tenantId, $from, self::BOT);
 
             return;
@@ -103,7 +118,7 @@ class WalletTopup
         $payPhone = self::intlPhone($payPhone);
 
         if (strlen($payPhone) < 11) {
-            $wa->sendText($from, "That phone number doesn't look right. Please send it again (e.g. 07XXXXXXXX).");
+            $wa->sendText($from, self::t($tenantId, $from, 'pay_phone_invalid'));
 
             return;
         }
@@ -124,7 +139,7 @@ class WalletTopup
         $shop = BotSettings::get($tenantId, self::BOT)['shop'] ?? [];
         $payId = trim((string) ($shop['binance_pay_id'] ?? ''));
         if ($payId === '') {
-            $wa->sendText($from, "⚠️ Binance payment isn't fully set up for this store yet. Please contact support.");
+            $wa->sendText($from, self::t($tenantId, $from, 'binance_not_setup'));
             BotConversation::reset($tenantId, $from, self::BOT);
 
             return;
@@ -145,11 +160,7 @@ class WalletTopup
         $amt = rtrim(rtrim(number_format($amount, 2), '0'), '.');
         $wa->sendText(
             $from,
-            "💰 *Pay {$amt} USDT via Binance*\n\n"
-            . "1️⃣ Open Binance → *Pay* → *Send*\n"
-            . "2️⃣ Send *{$amt} USDT* to Binance ID:\n*{$payId}*\n"
-            . "3️⃣ Copy the *Order ID* from the successful payment and send it here.\n\n"
-            . "Your order is placed automatically once the payment is verified."
+            self::t($tenantId, $from, 'binance_pay_instructions', ['amount' => $amt, 'pay_id' => $payId])
         );
     }
 
@@ -163,7 +174,7 @@ class WalletTopup
         $text = trim($text);
 
         if ($text === '' || strtolower($text) === 'cancel') {
-            $wa->sendText($from, "❌ Payment cancelled. Send *hi* to start again.");
+            $wa->sendText($from, self::t($tenantId, $from, 'payment_cancelled'));
             BotConversation::reset($tenantId, $from, self::BOT);
 
             return;
@@ -172,7 +183,7 @@ class WalletTopup
         $paymentId = (int) ($ctx['payment_id'] ?? 0);
         $payment = $paymentId > 0 ? BotPayment::find($paymentId) : null;
         if ($payment === null) {
-            $wa->sendText($from, "⚠️ Payment session expired. Send *hi* to start again.");
+            $wa->sendText($from, self::t($tenantId, $from, 'binance_session_expired'));
             BotConversation::reset($tenantId, $from, self::BOT);
 
             return;
@@ -180,14 +191,14 @@ class WalletTopup
 
         // Replay guard: this Order ID must not already back a payment (per tenant).
         if (BotPayment::binanceOrderUsed($tenantId, $text)) {
-            $wa->sendText($from, "⚠️ This Binance Order ID has already been used. Please make a new transfer.");
+            $wa->sendText($from, self::t($tenantId, $from, 'binance_order_used'));
 
             return;
         }
 
         $gatewayCfg = TenantPaymentGateway::find($tenantId, 'binance');
         if ($gatewayCfg === null) {
-            $wa->sendText($from, "⚠️ Binance isn't configured for this store. Please contact support.");
+            $wa->sendText($from, self::t($tenantId, $from, 'binance_not_configured'));
             BotConversation::reset($tenantId, $from, self::BOT);
 
             return;
@@ -203,7 +214,9 @@ class WalletTopup
         $result = $client->verifyOrder($text, (float) $payment['amount']);
         if (empty($result['success'])) {
             // Keep the state so the customer can resend a corrected Order ID.
-            $wa->sendText($from, "❌ " . ($result['message'] ?? 'Verification failed.') . "\n\nSend the correct *Order ID*, or *cancel*.");
+            $wa->sendText($from, self::t($tenantId, $from, 'binance_verify_failed', [
+                'message' => $result['message'] ?? 'Verification failed.',
+            ]));
 
             return;
         }
@@ -211,7 +224,7 @@ class WalletTopup
         // Record the Order ID (unique = replay guard), then complete: credit
         // wallet + place the pending order (idempotent via markSuccess inside).
         BotPayment::setBinanceOrder($paymentId, $text);
-        $wa->sendText($from, "✅ Payment verified! Adding funds and placing your order…");
+        $wa->sendText($from, self::t($tenantId, $from, 'binance_verified'));
         self::completeAfterPayment($paymentId);
     }
 
@@ -225,7 +238,7 @@ class WalletTopup
 
         $gatewayCfg = TenantPaymentGateway::find($tenantId, (string) ($ctx['gateway'] ?? ''));
         if ($gatewayCfg === null) {
-            $wa->sendText($from, "⚠️ Payment gateway unavailable. Please contact support.");
+            $wa->sendText($from, self::t($tenantId, $from, 'gateway_unavailable'));
             BotConversation::reset($tenantId, $from, self::BOT);
 
             return;
@@ -264,7 +277,9 @@ class WalletTopup
 
         if (empty($result['success'])) {
             BotPayment::markFailed($paymentId);
-            $wa->sendText($from, "⚠️ Couldn't start the payment: " . ($result['message'] ?? 'try again') . ".");
+            $wa->sendText($from, self::t($tenantId, $from, 'payment_start_failed', [
+                'message' => $result['message'] ?? 'try again',
+            ]));
             BotConversation::reset($tenantId, $from, self::BOT);
 
             return;
@@ -279,17 +294,20 @@ class WalletTopup
         }
 
         // Crypto/card gateways return a payment link; mobile-money pushes a USSD.
+        // When a pending order rides along (top-up-to-buy), promise the order is
+        // placed automatically; a standalone Add-Funds top-up just credits.
         $amountLabel = $currency . ' ' . number_format($amount, 0);
+        $hasOrder = !empty($ctx['service']);
         if (!empty($result['redirect_url'])) {
-            $wa->sendText(
-                $from,
-                "💳 To add *{$amountLabel}* to your wallet, complete the payment here:\n{$result['redirect_url']}\n\nYour order is placed automatically once payment is confirmed."
-            );
+            $wa->sendText($from, self::t($tenantId, $from, $hasOrder ? 'payment_link' : 'topup_only_link', [
+                'amount' => $amountLabel,
+                'url' => $result['redirect_url'],
+            ]));
         } else {
-            $wa->sendText(
-                $from,
-                "💳 A payment request for *{$amountLabel}* was sent to *" . self::localPhone($payPhone) . "*.\nApprove it on your phone. Your order is placed automatically once payment is confirmed."
-            );
+            $wa->sendText($from, self::t($tenantId, $from, $hasOrder ? 'payment_push' : 'topup_only_push', [
+                'amount' => $amountLabel,
+                'phone' => self::localPhone($payPhone),
+            ]));
         }
     }
 

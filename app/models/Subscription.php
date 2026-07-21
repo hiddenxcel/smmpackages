@@ -11,7 +11,7 @@ require_once __DIR__ . '/BaseModel.php';
  */
 class Subscription extends BaseModel
 {
-    public const SERVICES = ['order_bot', 'support_bot', 'ai_tickets', 'number_rental'];
+    public const SERVICES = ['order_bot', 'support_bot', 'ai_tickets', 'ai_chat', 'number_rental'];
 
     public static function find(int $id): ?array
     {

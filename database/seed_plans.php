@@ -18,7 +18,8 @@ $plans = [
     ['order_bot',      'order_bot',      'Order Bot',    'Customers place orders through WhatsApp.',        17.00, 163.20, 5, 1, 1],
     ['support_bot',    'support_bot',    'Support Bot',  'Refill, status, cancel and speed-up, automatically.', 17.00, 163.20, 5, 1, 2],
     ['ai_tickets',     'ai_tickets',     'AI Tickets',   'AI-powered support tickets inside your website.', 11.00, 105.60, 1, 1, 3],
-    ['number_rental',  'number_rental',  'Rent a Number','Rent a Cloud API number when you have no Meta Business account.', 11.00, 105.60, 1, 1, 4],
+    ['ai_chat',        'ai_chat',        'AI Chat',      'AI Support inside your Order Bot — answers customers automatically on WhatsApp.', 5.00, 48.00, 1, 1, 4],
+    ['number_rental',  'number_rental',  'Rent a Number','Rent a Cloud API number when you have no Meta Business account.', 11.00, 105.60, 1, 1, 5],
 ];
 
 $stmt = $db->prepare(

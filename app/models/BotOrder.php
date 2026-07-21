@@ -101,6 +101,19 @@ class BotOrder extends BaseModel
         return $stmt->fetchAll();
     }
 
+    /** A customer's most recent orders (for the bot's Track Order menu), newest first. */
+    public static function recentForCustomer(int $tenantId, string $phone, int $limit = 5): array
+    {
+        $limit = max(1, min($limit, 20));
+        $stmt = self::db()->prepare(
+            "SELECT * FROM bot_orders WHERE tenant_id = ? AND customer_phone = ?
+             ORDER BY created_at DESC LIMIT ?"
+        );
+        $stmt->execute([$tenantId, $phone, $limit]);
+
+        return $stmt->fetchAll();
+    }
+
     /** Orders that still need a status poll (have a provider id, not in a terminal state). */
     public static function needingSync(int $limit = 200): array
     {
@@ -121,6 +134,19 @@ class BotOrder extends BaseModel
         $stmt = self::db()->prepare('UPDATE bot_orders SET status = ? WHERE id = ?');
 
         return $stmt->execute([$status, $id]);
+    }
+
+    /**
+     * Move an order to a new status, scoped to the owning tenant (so one tenant
+     * can never touch another's orders). Used by the Kanban board's drag-drop.
+     * Returns true only if a row belonging to this tenant was updated.
+     */
+    public static function moveStatus(int $tenantId, int $id, string $status): bool
+    {
+        $stmt = self::db()->prepare('UPDATE bot_orders SET status = ? WHERE id = ? AND tenant_id = ?');
+        $stmt->execute([$status, $id, $tenantId]);
+
+        return $stmt->rowCount() > 0;
     }
 
     /** Status counts for the orders page summary. */

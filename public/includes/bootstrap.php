@@ -15,6 +15,7 @@ require_once __DIR__ . '/../../app/models/SubscriptionPayment.php';
 require_once __DIR__ . '/../../app/helpers/TenantAuth.php';
 require_once __DIR__ . '/../../app/helpers/Csrf.php';
 require_once __DIR__ . '/../../app/helpers/Lang.php';
+require_once __DIR__ . '/../../app/helpers/BotLang.php';
 require_once __DIR__ . '/../../app/helpers/RateLimit.php';
 require_once __DIR__ . '/../../app/services/SubscriptionBilling.php';
 require_once __DIR__ . '/../../app/models/TenantPanel.php';

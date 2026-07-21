@@ -124,6 +124,24 @@ class TenantWhatsApp extends BaseModel
     }
 
     /**
+     * True if this tenant already runs $botType on a DIFFERENT number than
+     * $exceptPnid. Enforces "one number = one service": a service can't be
+     * assigned to two numbers. ('both' historically covers order+support.)
+     */
+    public static function botRoleTakenByOther(int $tenantId, string $botType, string $exceptPnid): bool
+    {
+        $stmt = self::db()->prepare(
+            "SELECT 1 FROM tenant_whatsapp
+             WHERE tenant_id = ? AND phone_number_id <> ?
+               AND (bot_type = ? OR bot_type = 'both')
+             LIMIT 1"
+        );
+        $stmt->execute([$tenantId, $exceptPnid, $botType]);
+
+        return $stmt->fetch() !== false;
+    }
+
+    /**
      * Upsert a tenant's WhatsApp connection. Token encrypted here.
      * A blank token means "keep the existing one" (edit without re-typing secrets).
      */

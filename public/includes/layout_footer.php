@@ -1,17 +1,50 @@
 <?php
 // Public footer + shared JS. Expects bootstrap + layout_header included.
-$supportWhatsApp = $config['links']['whatsapp_url'] ?? '#';
+$supportWhatsApp = $config['links']['whatsapp_url']  ?? '#';
+$supportTelegram = $config['links']['telegram_url']  ?? '';
+$supportEmail    = $config['links']['support_email'] ?? 'support@smmpackages.com';
 ?>
 <footer class="footer">
   <div class="container">
+
+    <!-- Newsletter strip -->
+    <div class="footer-cta">
+      <div class="footer-cta-copy">
+        <h3><?php e('footer_news_title'); ?></h3>
+        <p><?php e('footer_news_sub'); ?></p>
+      </div>
+      <form class="footer-news" id="footerNews" onsubmit="return false">
+        <div class="footer-news-field">
+          <i class="fa-solid fa-envelope"></i>
+          <input type="email" required placeholder="<?= htmlspecialchars(Lang::t('footer_news_ph'), ENT_QUOTES) ?>" aria-label="<?= htmlspecialchars(Lang::t('footer_news_ph'), ENT_QUOTES) ?>">
+        </div>
+        <button class="btn btn-primary" type="submit"><?php e('footer_news_btn'); ?> <i class="fa-solid fa-arrow-right"></i></button>
+      </form>
+      <p class="footer-news-ok" id="footerNewsOk"><i class="fa-solid fa-circle-check"></i> <?php e('footer_news_ok'); ?></p>
+    </div>
+
     <div class="footer-grid">
-      <div>
-        <a class="nav-logo" href="home.php" style="color:#fff;margin-bottom:14px">
+      <div class="footer-brandcol">
+        <a class="nav-logo" href="home.php" style="color:#fff">
           <span class="logo-mark"><i class="fa-brands fa-whatsapp"></i></span>
           <?= htmlspecialchars(Lang::t('brand')) ?>
         </a>
-        <p style="font-size:.88rem;color:var(--gray-500);max-width:280px;margin-top:12px"><?= htmlspecialchars(Lang::t('tagline')) ?></p>
+        <p class="footer-tag"><?= htmlspecialchars(Lang::t('tagline')) ?></p>
+
+        <span class="footer-status"><span class="footer-status-dot"></span> <?php e('footer_status'); ?></span>
+
+        <div class="footer-social" aria-label="<?= htmlspecialchars(Lang::t('footer_follow'), ENT_QUOTES) ?>">
+          <?php if ($supportWhatsApp !== '#' && $supportWhatsApp !== ''): ?>
+          <a href="<?= htmlspecialchars($supportWhatsApp) ?>" target="_blank" rel="noopener" aria-label="WhatsApp"><i class="fa-brands fa-whatsapp"></i></a>
+          <?php endif; ?>
+          <?php if ($supportTelegram !== ''): ?>
+          <a href="<?= htmlspecialchars($supportTelegram) ?>" target="_blank" rel="noopener" aria-label="Telegram"><i class="fa-brands fa-telegram"></i></a>
+          <?php endif; ?>
+          <a href="mailto:<?= htmlspecialchars($supportEmail) ?>" aria-label="Email"><i class="fa-solid fa-envelope"></i></a>
+          <a href="contact.php" aria-label="<?= htmlspecialchars(Lang::t('footer_contact'), ENT_QUOTES) ?>"><i class="fa-solid fa-headset"></i></a>
+        </div>
       </div>
+
       <div>
         <h4><?php e('footer_products'); ?></h4>
         <ul>
@@ -37,9 +70,21 @@ $supportWhatsApp = $config['links']['whatsapp_url'] ?? '#';
         </ul>
       </div>
     </div>
+
+    <!-- Payment strip -->
+    <div class="footer-pay">
+      <span class="footer-pay-note"><?php e('footer_pay_note'); ?></span>
+      <span class="footer-pay-chips">
+        <span class="pay-chip"><i class="fa-brands fa-bitcoin"></i> USDT</span>
+        <span class="pay-chip"><i class="fa-solid fa-mobile-screen"></i> M-Pesa</span>
+        <span class="pay-chip"><i class="fa-brands fa-cc-visa"></i> Card</span>
+        <span class="pay-chip"><i class="fa-solid fa-coins"></i> Crypto</span>
+      </span>
+    </div>
+
     <div class="footer-bottom">
       <span>&copy; <?= date('Y') ?> HiddenXcel. <?php e('footer_rights'); ?></span>
-      <a href="<?= htmlspecialchars($supportWhatsApp) ?>"><i class="fa-brands fa-whatsapp"></i> WhatsApp</a>
+      <span class="footer-made"><i class="fa-solid fa-heart"></i> <?php e('footer_made'); ?></span>
     </div>
   </div>
 </footer>
@@ -65,6 +110,32 @@ function smmToggleTheme(){
   var el = document.getElementById(id);
   if (el) el.addEventListener('click', smmToggleTheme);
 });
+
+/* Footer newsletter — client-side confirmation (no backend endpoint yet) */
+var footerNews = document.getElementById('footerNews');
+if (footerNews) footerNews.addEventListener('submit', function(){
+  var input = footerNews.querySelector('input');
+  if (!input.checkValidity()) { input.reportValidity(); return; }
+  footerNews.classList.add('sent');
+  var ok = document.getElementById('footerNewsOk');
+  if (ok) ok.classList.add('show');
+  input.value = '';
+});
+
+/* Language dropdown (landing navbar) */
+var langMenu = document.getElementById('langMenu');
+var langBtn = document.getElementById('langBtn');
+if (langMenu && langBtn) {
+  langBtn.addEventListener('click', function(e){
+    e.stopPropagation();
+    var open = langMenu.classList.toggle('open');
+    langBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  document.addEventListener('click', function(){
+    langMenu.classList.remove('open');
+    langBtn.setAttribute('aria-expanded', 'false');
+  });
+}
 
 /* Navbar glass effect on scroll */
 var mainNav = document.getElementById('mainNav');

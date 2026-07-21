@@ -13,7 +13,6 @@ require __DIR__ . '/includes/layout_header.php';
 $svcMeta = [
     'order_bot'     => ['icon' => 'fa-solid fa-cart-shopping', 'title' => 'svc_order_title',   'body' => 'svc_order_body'],
     'support_bot'   => ['icon' => 'fa-solid fa-headset',       'title' => 'svc_support_title', 'body' => 'svc_support_body'],
-    'ai_tickets'    => ['icon' => 'fa-solid fa-robot',         'title' => 'svc_ai_title',      'body' => 'svc_ai_body'],
     'number_rental' => ['icon' => 'fa-solid fa-phone',         'title' => 'svc_number_title',  'body' => 'svc_number_body'],
 ];
 ?>
@@ -40,6 +39,7 @@ $svcMeta = [
         <a class="btn btn-primary btn-lg" href="register.php"><i class="fa-solid fa-rocket"></i> <?php e('cta_start_free'); ?></a>
         <a class="btn btn-outline btn-lg" href="#demo"><i class="fa-regular fa-circle-play"></i> <?php e('cta_see_demo'); ?></a>
       </div>
+      <p class="cta-note fade-up delay-3"><i class="fa-solid fa-circle-check"></i> <?php e('cta_free_note'); ?></p>
     </div>
     <div class="fade-up delay-2">
       <!-- Live phone: the chat below plays itself (typing → reply → order → loop). -->
@@ -52,12 +52,12 @@ $svcMeta = [
           <div class="chat-head">
             <span class="wa-ava"><i class="fa-brands fa-whatsapp"></i></span>
             <span>
-              <span class="wa-name">YourPanel · Support Bot</span><br>
+              <span class="wa-name">YourPanel · Order Bot</span><br>
               <span class="wa-status">online</span>
             </span>
             <span class="wa-icons"><i class="fa-solid fa-video"></i><i class="fa-solid fa-phone"></i><i class="fa-solid fa-ellipsis-vertical"></i></span>
           </div>
-          <div class="chat-body" id="liveChat"></div>
+          <div class="chat-body tall" id="liveChat"></div>
         </div>
       </div>
     </div>
@@ -73,7 +73,7 @@ $svcMeta = [
         <div class="trust-label"><?php e('trust_panels'); ?></div>
       </div>
       <div class="trust-item fade-up delay-1">
-        <div class="trust-num">10K+</div>
+        <div class="trust-num">10M+</div>
         <div class="trust-label"><?php e('trust_orders'); ?></div>
       </div>
       <div class="trust-item fade-up delay-2">
@@ -88,6 +88,110 @@ $svcMeta = [
   </div>
 </section>
 
+<?php
+  // Demo video — only render if the file has actually been dropped in.
+  $vidFile   = __DIR__ . '/assets/video/demo.mp4';
+  $posterAbs = __DIR__ . '/assets/video/demo-poster.jpg';
+  $hasVideo  = is_file($vidFile);
+  $vidSrc    = 'assets/video/demo.mp4?v=' . ($hasVideo ? filemtime($vidFile) : '1');
+  $posterSrc = is_file($posterAbs) ? 'assets/video/demo-poster.jpg' : '';
+
+  /* ── Landing-page flow ──────────────────────────────────────────────
+     Each block below is captured into a variable (raw HTML, untouched),
+     then echoed further down in a conversion-optimised order with a clean
+     alternating (zebra) background. To reorder the page, change $flow only. */
+  $sec = [];
+  $cap = function (string $key) use (&$sec) { $sec[$key] = ob_get_clean(); };
+?>
+
+<?php ob_start(); ?>
+<?php if ($hasVideo): ?>
+<!-- DEMO VIDEO -->
+<section class="section" id="video">
+  <div class="container" style="max-width:860px;text-align:center">
+    <span class="eyebrow fade-up"><i class="fa-solid fa-circle-play"></i> <?php e('vid_eyebrow'); ?></span>
+    <h2 class="section-title fade-up"><?php e('vid_title'); ?></h2>
+    <p class="section-sub fade-up"><?php e('vid_sub'); ?></p>
+    <div class="video-frame fade-up">
+      <video class="demo-video" controls preload="none" playsinline
+             <?= $posterSrc ? 'poster="' . htmlspecialchars($posterSrc) . '"' : '' ?>>
+        <source src="<?= htmlspecialchars($vidSrc) ?>" type="video/mp4">
+      </video>
+      <button class="video-play" type="button" aria-label="<?php e('vid_play'); ?>">
+        <i class="fa-solid fa-play"></i>
+      </button>
+    </div>
+    <p class="video-cap fade-up"><i class="fa-solid fa-circle-info"></i> <?php e('vid_caption'); ?></p>
+  </div>
+</section>
+<?php endif; ?>
+<?php $cap('video'); ?>
+
+<?php ob_start(); ?>
+<!-- COMPARISON: SMM Packages vs QR-scan bots -->
+<section class="section" id="compare">
+  <div class="container" style="max-width:920px">
+    <h2 class="section-title fade-up"><?php e('cmp_title'); ?></h2>
+    <p class="section-sub fade-up"><?php e('cmp_sub'); ?></p>
+    <?php
+      $cmpRows = [
+        ['cmp_row_api',    'cmp_us_api',    'cmp_them_api'],
+        ['cmp_row_ban',    'cmp_us_ban',    'cmp_them_ban'],
+        ['cmp_row_pay',    'cmp_us_pay',    'cmp_them_pay'],
+        ['cmp_row_svc',    'cmp_us_svc',    'cmp_them_svc'],
+        ['cmp_row_uptime', 'cmp_us_uptime', 'cmp_them_uptime'],
+      ];
+    ?>
+    <div class="cmp-wrap fade-up">
+      <table class="cmp-table">
+        <thead>
+          <tr>
+            <th class="cmp-feat"></th>
+            <th class="cmp-us"><i class="fa-solid fa-shield-halved"></i> <?php e('cmp_us'); ?></th>
+            <th class="cmp-them"><?php e('cmp_them'); ?></th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php foreach ($cmpRows as $r): ?>
+          <tr>
+            <td class="cmp-feat"><?php e($r[0]); ?></td>
+            <td class="cmp-us"><span class="cmp-yes"><i class="fa-solid fa-circle-check"></i></span> <?php e($r[1]); ?></td>
+            <td class="cmp-them"><span class="cmp-no"><i class="fa-solid fa-triangle-exclamation"></i></span> <?php e($r[2]); ?></td>
+          </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<?php $cap('compare'); ?>
+
+<?php ob_start(); ?>
+<!-- TESTIMONIALS -->
+<section class="section" id="testimonials">
+  <div class="container">
+    <h2 class="section-title fade-up"><?php e('tst_title'); ?></h2>
+    <p class="section-sub fade-up"><?php e('tst_sub'); ?></p>
+    <div class="tst-grid">
+      <?php for ($i = 1; $i <= 4; $i++): ?>
+      <figure class="tst-card fade-up<?= $i > 1 ? ' delay-' . ($i - 1) : '' ?>">
+        <div class="tst-stars"><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i></div>
+        <blockquote class="tst-body">“<?php e("tst_{$i}_body"); ?>”</blockquote>
+        <figcaption class="tst-who">
+          <span class="tst-ava"><?= htmlspecialchars(mb_substr(Lang::t("tst_{$i}_name"), 0, 1)) ?></span>
+          <span>
+            <span class="tst-name"><?php e("tst_{$i}_name"); ?></span>
+            <span class="tst-meta"><?php e("tst_{$i}_meta"); ?></span>
+          </span>
+        </figcaption>
+      </figure>
+      <?php endfor; ?>
+    </div>
+  </div>
+</section>
+<?php $cap('testimonials'); ?>
+
+<?php ob_start(); ?>
 <!-- THREE WEAPONS -->
 <section class="section">
   <div class="container">
@@ -112,28 +216,35 @@ $svcMeta = [
     </div>
   </div>
 </section>
+<?php $cap('weapons'); ?>
 
-<!-- FOUR SERVICES (a la carte, each with price + CTA) -->
-<section class="section section-alt" id="services">
+<?php ob_start(); ?>
+<!-- SERVICES (a la carte, each with price + CTA) -->
+<section class="section" id="services">
   <div class="container">
     <h2 class="section-title fade-up"><?php e('nav_services'); ?></h2>
     <p class="section-sub fade-up"><?php e('faq_a5'); ?></p>
-    <div class="grid grid-4">
-      <?php foreach ($svcMeta as $key => $meta): $plan = $planMap[$key] ?? null; ?>
-      <div class="card fade-up<?= $key === 'support_bot' ? ' delay-1' : ($key === 'ai_tickets' ? ' delay-2' : ($key === 'number_rental' ? ' delay-3' : '')) ?>">
+    <div class="svc-grid">
+      <?php $i = 0; foreach ($svcMeta as $key => $meta): $plan = $planMap[$key] ?? null; $alt = ($key === 'number_rental'); ?>
+      <div class="card svc-card fade-up<?= $i ? ' delay-' . $i : '' ?><?= $alt ? ' svc-alt' : '' ?>">
+        <?php if ($alt): ?><span class="svc-badge"><?php e('svc_number_badge'); ?></span><?php endif; ?>
         <div class="card-icon"><i class="<?= $meta['icon'] ?>"></i></div>
         <h3><?php e($meta['title']); ?></h3>
         <p><?php e($meta['body']); ?></p>
-        <?php if ($plan): ?>
-        <div class="price-tag">$<?= rtrim(rtrim(number_format((float) $plan['price_monthly'], 2), '0'), '.') ?><small> <?php e('per_month'); ?></small></div>
-        <?php endif; ?>
-        <a class="btn btn-primary btn-block" style="margin-top:16px" href="register.php"><?php e('buy_now'); ?></a>
+        <div class="svc-foot">
+          <?php if ($plan): ?>
+          <div class="price-tag">$<?= rtrim(rtrim(number_format((float) $plan['price_monthly'], 2), '0'), '.') ?><small> <?php e('per_month'); ?></small></div>
+          <?php endif; ?>
+          <a class="btn btn-primary btn-block" href="register.php"><?php e('buy_now'); ?></a>
+        </div>
       </div>
-      <?php endforeach; ?>
+      <?php $i++; endforeach; ?>
     </div>
   </div>
 </section>
+<?php $cap('services'); ?>
 
+<?php ob_start(); ?>
 <!-- PANELS SUPPORTED -->
 <section class="section">
   <div class="container">
@@ -143,13 +254,14 @@ $svcMeta = [
       <span class="chip"><i class="fa-solid fa-circle-check"></i> PerfectPanel</span>
       <span class="chip"><i class="fa-solid fa-circle-check"></i> Rental Panel</span>
       <span class="chip"><i class="fa-solid fa-circle-check"></i> SMM API v2 (Custom)</span>
-      <span class="chip"><i class="fa-solid fa-circle-check"></i> KuzaPanel</span>
     </div>
   </div>
 </section>
+<?php $cap('panels'); ?>
 
+<?php ob_start(); ?>
 <!-- DEMOS INTRO -->
-<section class="section section-alt" id="demo" style="padding-bottom:40px">
+<section class="section" id="demo" style="padding-bottom:40px">
   <div class="container">
     <div style="text-align:center">
       <span class="eyebrow fade-up"><i class="fa-solid fa-play"></i> Live demos</span>
@@ -158,48 +270,9 @@ $svcMeta = [
     <p class="section-sub fade-up"><?php e('demo2_sub'); ?></p>
   </div>
 </section>
+<?php $cap('demos_intro'); ?>
 
-<!-- ORDER BOT DEMO (KuzaPanel-style guided menu) -->
-<section class="section section-alt" style="padding-top:20px">
-  <div class="container">
-    <div class="demo-split">
-      <div class="demo-visual fade-up">
-        <!-- Live phone: plays the COMPLETE order flow (menu → platform →
-             category → package → link → confirm → wallet → placed) on loop. -->
-        <div class="phone phone-live">
-          <div class="phone-screen">
-            <div class="statusbar">
-              <span class="liveClock2">09:41</span>
-              <span><i class="fa-solid fa-signal"></i><i class="fa-solid fa-wifi"></i><i class="fa-solid fa-battery-three-quarters"></i></span>
-            </div>
-            <div class="chat-head">
-              <span class="wa-ava"><i class="fa-brands fa-whatsapp"></i></span>
-              <span>
-                <span class="wa-name">YourPanel · Order Bot</span><br>
-                <span class="wa-status">online</span>
-              </span>
-              <span class="wa-icons"><i class="fa-solid fa-video"></i><i class="fa-solid fa-phone"></i><i class="fa-solid fa-ellipsis-vertical"></i></span>
-            </div>
-            <div class="chat-body tall" id="liveOrder"></div>
-          </div>
-        </div>
-      </div>
-      <div class="fade-up delay-1">
-        <span class="eyebrow"><i class="fa-solid fa-cart-shopping"></i> Order Bot</span>
-        <h2 style="font-size:1.9rem;margin-bottom:14px"><?php e('demo_order_title'); ?></h2>
-        <p style="color:var(--text-muted);font-size:1.05rem;margin-bottom:22px"><?php e('demo_order_sub'); ?></p>
-        <div class="bene-list">
-          <div class="bene-item"><span class="bene-check"><i class="fa-solid fa-check"></i></span> Interactive menus — no commands to memorise</div>
-          <div class="bene-item"><span class="bene-check"><i class="fa-solid fa-check"></i></span> Your brand name and services, not ours</div>
-          <div class="bene-item"><span class="bene-check"><i class="fa-solid fa-check"></i></span> Order lands on your panel the instant it's placed</div>
-          <div class="bene-item"><span class="bene-check"><i class="fa-solid fa-check"></i></span> Works on WhatsApp <em>and</em> Telegram</div>
-        </div>
-        <div class="demo-cap"><i class="fa-solid fa-circle-info"></i> <?php e('demo_order_cap'); ?></div>
-      </div>
-    </div>
-  </div>
-</section>
-
+<?php ob_start(); ?>
 <!-- SUPPORT BOT DEMO (Quick Menu + refill/cancel/status response cards) -->
 <section class="section">
   <div class="container">
@@ -277,9 +350,11 @@ $svcMeta = [
     </div>
   </div>
 </section>
+<?php $cap('demo_support'); ?>
 
+<?php ob_start(); ?>
 <!-- AI TICKETS DEMO -->
-<section class="section section-alt">
+<section class="section">
   <div class="container">
     <div class="demo-split">
       <div class="demo-visual fade-up">
@@ -317,7 +392,9 @@ $svcMeta = [
     </div>
   </div>
 </section>
+<?php $cap('demo_ai'); ?>
 
+<?php ob_start(); ?>
 <!-- 4 STEPS -->
 <section class="section">
   <div class="container">
@@ -347,9 +424,11 @@ $svcMeta = [
     </div>
   </div>
 </section>
+<?php $cap('steps'); ?>
 
+<?php ob_start(); ?>
 <!-- PAYMENTS -->
-<section class="section section-alt">
+<section class="section">
   <div class="container">
     <h2 class="section-title fade-up"><?php e('pay_title'); ?></h2>
     <p class="section-sub fade-up"><?php e('pay_sub'); ?></p>
@@ -363,7 +442,37 @@ $svcMeta = [
     </div>
   </div>
 </section>
+<?php $cap('payments'); ?>
 
+<?php
+  // Build a "try on WhatsApp" link from the support number, prefilling a message.
+  $waBase = $config['links']['whatsapp_url'] ?? '#';
+  $tryLink = '#';
+  if ($waBase && $waBase !== '#') {
+      $sep = (strpos($waBase, '?') !== false) ? '&' : '?';
+      $tryLink = $waBase . $sep . 'text=' . rawurlencode(Lang::t('try_prefill'));
+  }
+?>
+<?php ob_start(); ?>
+<?php if ($tryLink !== '#'): ?>
+<!-- TRY ON WHATSAPP -->
+<section class="section" id="try">
+  <div class="container">
+    <div class="try-band fade-up">
+      <span class="try-ico"><i class="fa-brands fa-whatsapp"></i></span>
+      <h2><?php e('try_title'); ?></h2>
+      <p><?php e('try_sub'); ?></p>
+      <a class="btn btn-lg try-btn" href="<?= htmlspecialchars($tryLink) ?>" target="_blank" rel="noopener">
+        <i class="fa-brands fa-whatsapp"></i> <?php e('try_btn'); ?>
+      </a>
+      <p class="try-note"><i class="fa-solid fa-circle-info"></i> <?php e('try_note'); ?></p>
+    </div>
+  </div>
+</section>
+<?php endif; ?>
+<?php $cap('try'); ?>
+
+<?php ob_start(); ?>
 <!-- FAQ -->
 <section class="section">
   <div class="container" style="max-width:760px">
@@ -379,6 +488,43 @@ $svcMeta = [
     </div>
   </div>
 </section>
+<?php $cap('faq'); ?>
+
+<?php
+  /* New conversion-optimised order. Video only slots in when a file exists.
+     'alt' toggles the soft (zebra) background so no two adjacent sections match. */
+  $flow = [
+      'compare',      // problem → why us
+      'weapons',      // core value props
+      'services',     // the offer (a-la-carte + price)
+      'demos_intro',  // "see it live"
+      'demo_support', // support bot in action
+      'demo_ai',      // AI tickets + channels
+      'testimonials', // social proof AFTER they've seen the product
+      'panels',       // compatibility reassurance
+      'steps',        // how to get started
+      'payments',     // how to pay
+  ];
+  if ($hasVideo) {
+      array_splice($flow, 3, 0, 'video'); // drop the demo video right before the live demos
+  }
+  if (isset($sec['try']) && trim($sec['try']) !== '') {
+      $flow[] = 'try'; // last nudge before FAQ + CTA
+  }
+  $flow[] = 'faq';
+
+  $alt = false;
+  foreach ($flow as $key) {
+      if (empty($sec[$key])) { continue; }
+      $html = $sec[$key];
+      if ($alt) {
+          // Add the zebra background to this block's first <section>.
+          $html = preg_replace('/<section class="section(?!-alt)/', '<section class="section section-alt', $html, 1);
+      }
+      echo $html;
+      $alt = !$alt;
+  }
+?>
 
 <!-- FINAL CTA -->
 <section class="section">
@@ -403,7 +549,7 @@ $svcMeta = [
     var d = new Date(), h = d.getHours(), m = d.getMinutes();
     return (h < 10 ? '0' + h : h) + ':' + (m < 10 ? '0' + m : m);
   }
-  document.querySelectorAll('#liveClock, .liveClock2').forEach(function (c) { c.textContent = now(); });
+  document.querySelectorAll('#liveClock').forEach(function (c) { c.textContent = now(); });
 
   function bubble(step) {
     var el = document.createElement('div');
@@ -463,35 +609,9 @@ $svcMeta = [
     play(0);
   }
 
-  /* HERO — the SUPPORT BOT, full journey: Quick Menu → Refill → Order ID →
-     guarantee check → submitted. (The Order Bot plays in the demo section.) */
+  /* HERO — the ORDER BOT, the COMPLETE flow, every step a real customer takes:
+     menu → platform → category → package → link → confirm → wallet → placed. */
   player('liveChat', [
-    { who: 'out',  t: 'Hi 👋' },
-    { who: 'menu', t: '<div class="bm-title">📋 Quick Menu (AI)</div>Welcome to <b>YourPanel</b> — AI &amp; Human Support 🤖<div class="bm-list">'
-      + '<div class="bm-item">1️⃣ Refill</div>'
-      + '<div class="bm-item">2️⃣ Speed Up</div>'
-      + '<div class="bm-item">3️⃣ Cancel</div>'
-      + '<div class="bm-item">4️⃣ Partial / Fake Comp</div>'
-      + '<div class="bm-item">5️⃣ 👤 Talk to a Human</div>'
-      + '<div class="bm-item">6️⃣ 📦 Order Status</div>'
-      + '<div class="bm-item">7️⃣ 💸 Top-Up Issue</div>'
-      + '<div class="bm-item">8️⃣ ❓ AI FAQ</div>'
-      + '</div>' },
-    { who: 'out',  t: '1️⃣ Refill' },
-    { who: 'in',   t: '🔢 Please send the <b>Order ID</b> for Refill' },
-    { who: 'out',  t: '#48219' },
-    { who: 'in',   t: '🛡️ Checking your refill guarantee…' },
-    { who: 'card', t: '<div class="bc-title">♻️ Refill Submitted</div>'
-      + '<div class="bc-row"><span class="bc-ico">🆔</span><span><span class="bc-k">Order:</span> #48219</span></div>'
-      + '<div class="bc-row"><span class="bc-ico">📦</span><span><span class="bc-k">Service:</span> Instagram Followers</span></div>'
-      + '<div class="bc-row"><span class="bc-ico">🛡️</span><span><span class="bc-k">Guarantee:</span> 30 days ✅</span></div>'
-      + '<div class="bc-row"><span class="bc-ico">⚡</span><span><span class="bc-k">Status:</span> Sent to provider</span></div>'
-      + '<div class="bc-foot">Bot • under 1 second</div>' },
-    { who: 'in',   t: 'Reply <b>0</b> for the menu anytime 🙌' }
-  ], 4200);
-
-  /* ORDER BOT DEMO — the COMPLETE flow, every step a real customer takes. */
-  player('liveOrder', [
     { who: 'out',  t: 'Hi' },
     { who: 'menu', t: '<div class="bm-title">👑 Welcome to YourPanel!</div>Grow your social media — fast, safe & affordable.<div class="bm-btn"><i class="fa-solid fa-list"></i> Open Menu</div>' },
     { who: 'out',  t: '🛒 Place New Order' },
@@ -508,6 +628,19 @@ $svcMeta = [
     { who: 'in',   t: '💳 Paid from your wallet — new balance <b>$48.80</b>' },
     { who: 'card', t: '<div class="bc-title">✅ Order Confirmed</div><div class="bc-row"><span class="bc-ico">🆔</span><span><span class="bc-k">Order:</span> #48220</span></div><div class="bc-row"><span class="bc-ico">📦</span><span><span class="bc-k">Service:</span> Instagram Followers</span></div><div class="bc-row"><span class="bc-ico">🔢</span><span><span class="bc-k">Quantity:</span> 1,000</span></div><div class="bc-row"><span class="bc-ico">⚡</span><span><span class="bc-k">Status:</span> Sent to your panel</span></div><div class="bc-foot">Bot • Instant</div></div>' }
   ], 4500);
+})();
+
+/* Demo video — the big play button starts playback (with controls) and fades out. */
+(function () {
+  var frame = document.querySelector('.video-frame');
+  if (!frame) return;
+  var vid = frame.querySelector('.demo-video');
+  var btn = frame.querySelector('.video-play');
+  if (!vid || !btn) return;
+  btn.addEventListener('click', function () { vid.play(); });
+  vid.addEventListener('play', function () { frame.classList.add('is-playing'); });
+  vid.addEventListener('pause', function () { frame.classList.remove('is-playing'); });
+  vid.addEventListener('ended', function () { frame.classList.remove('is-playing'); });
 })();
 </script>
 

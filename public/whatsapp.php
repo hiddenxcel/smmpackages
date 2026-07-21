@@ -16,13 +16,20 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         $pnid = trim($_POST['phone_number_id'] ?? '');
         $waba = trim($_POST['waba_id'] ?? '');
         $display = trim($_POST['display_number'] ?? '');
-        $botType = in_array($_POST['bot_type'] ?? '', ['order', 'support', 'both'], true) ? $_POST['bot_type'] : 'order';
+        // One number = one service. "both" is no longer offered — a tenant who
+        // wants both bots adds a second number.
+        $botType = in_array($_POST['bot_type'] ?? '', ['order', 'support'], true) ? $_POST['bot_type'] : 'order';
 
         if ($pnid === '') {
             $notice = Lang::t('err_required');
             $noticeType = 'danger';
         } elseif (TenantWhatsApp::phoneNumberIdTakenByOther($pnid, $tenantId)) {
             $notice = Lang::t('wa_pnid_taken');
+            $noticeType = 'danger';
+        } elseif (TenantWhatsApp::botRoleTakenByOther($tenantId, $botType, $pnid)) {
+            // One number = one service: this service is already run by another number.
+            $botName = ['order' => 'Order Bot', 'support' => 'Support Bot'][$botType] ?? $botType;
+            $notice = Lang::t('wa_role_conflict', ['bot' => $botName]);
             $noticeType = 'danger';
         } else {
             // saveByPnid keys on phone_number_id, so a tenant can add a SECOND
@@ -61,6 +68,14 @@ $numbers = TenantWhatsApp::allForTenant($tenantId);
 $whatsapp = $numbers[0] ?? null;
 $availableNumbers = PlatformNumber::available();
 $botLabel = ['order' => 'Order Bot', 'support' => 'Support Bot', 'both' => 'Order + Support'];
+// A number is "taken" for a service if another saved number already runs it.
+// Used to grey out a service in the picker so one number = one service.
+$rolesUsed = [];
+foreach ($numbers as $n) {
+    $bt = $n['bot_type'] ?? '';
+    if ($bt === 'both') { $rolesUsed['order'] = true; $rolesUsed['support'] = true; }
+    elseif ($bt !== '') { $rolesUsed[$bt] = true; }
+}
 $baseUrl = rtrim($config['app']['url'] ?? '', '/');
 $webhookUrl = $baseUrl . '/webhooks/whatsapp.php';
 $verifyToken = $config['meta']['verify_token'] ?? '';
@@ -155,12 +170,23 @@ require __DIR__ . '/includes/dash_header.php';
       </div>
       <div class="form-group">
         <label><?php e('wa_bot_type'); ?></label>
+        <?php
+          // One number = one service. A service already run by another number is
+          // disabled here so it can't be assigned twice.
+          $orderTaken = !empty($rolesUsed['order']);
+          $supportTaken = !empty($rolesUsed['support']);
+          // Default-select the first service that is still free.
+          $defaultRole = $orderTaken ? 'support' : 'order';
+        ?>
         <select class="form-control" name="bot_type">
-          <option value="order"><?php e('wa_bot_order'); ?></option>
-          <option value="support"><?php e('wa_bot_support'); ?></option>
-          <option value="both"><?php e('wa_bot_both'); ?></option>
+          <option value="order"<?= $orderTaken ? ' disabled' : ($defaultRole === 'order' ? ' selected' : '') ?>>
+            <?php e('wa_bot_order'); ?><?= $orderTaken ? ' — ' . Lang::t('wa_role_taken') : '' ?>
+          </option>
+          <option value="support"<?= $supportTaken ? ' disabled' : ($defaultRole === 'support' ? ' selected' : '') ?>>
+            <?php e('wa_bot_support'); ?><?= $supportTaken ? ' — ' . Lang::t('wa_role_taken') : '' ?>
+          </option>
         </select>
-        <div class="form-hint">Choose <strong>Support Bot</strong> for a dedicated support line.</div>
+        <div class="form-hint"><?php e('wa_one_service_hint'); ?></div>
       </div>
     </div>
     <button class="btn btn-primary" type="submit"><i class="fa-brands fa-whatsapp"></i> <?php e('wa_save'); ?></button>

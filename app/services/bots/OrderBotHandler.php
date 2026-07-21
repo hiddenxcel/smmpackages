@@ -6,25 +6,30 @@ require_once __DIR__ . '/../../models/BotCustomer.php';
 require_once __DIR__ . '/../../models/BotService.php';
 require_once __DIR__ . '/../../models/TenantPanel.php';
 require_once __DIR__ . '/../../models/BotSettings.php';
+require_once __DIR__ . '/../../models/Subscription.php';
+require_once __DIR__ . '/../../models/TenantAi.php';
+require_once __DIR__ . '/../../helpers/BotLang.php';
 require_once __DIR__ . '/../SmmProviderClient.php';
 require_once __DIR__ . '/../BotMessenger.php';
 require_once __DIR__ . '/../WalletTopup.php';
+require_once __DIR__ . '/../DeepSeekClient.php';
 
 /**
- * OrderBotHandler — wallet-based order-placement state machine over WhatsApp
- * (and Telegram, via BotMessenger). Ported from kuzapanel-bot and made
- * multi-tenant: everything is scoped to the tenant whose number received the
- * message.
+ * OrderBotHandler — wallet-based, multi-language WhatsApp/Telegram bot with a
+ * main menu (ported from kuzapanel-bot and made multi-tenant).
  *
- * Flow:
- *   (hi) -> SELECT_PLATFORM -> SELECT_SERVICE -> SELECT_QTY -> SEND_LINK
- *        -> CONFIRM -> [wallet check]
- *              enough  -> debit wallet + place order on the tenant's panel
- *              short   -> offer top-up (handed to WalletTopup, Awamu 4)
+ * Everything is scoped to the tenant whose number received the message. Every
+ * customer-facing string is translated via BotLang in the customer's resolved
+ * language: their saved bot_customers.lang, else the tenant's shop.lang default.
  *
- * Services + prices come from bot_services (the tenant's own catalogue and
- * their own my_price). The customer has a wallet (bot_customers.balance) that
- * placing an order debits. Currency is the tenant's chosen currency.
+ * "hi" -> MAIN_MENU (a 9-option list). From there:
+ *   🛒 New Order  -> SELECT_PLATFORM -> SELECT_SERVICE -> SELECT_QTY -> SEND_LINK
+ *                 -> CONFIRM -> [wallet check] pay-from-wallet OR top-up (WalletTopup)
+ *   💰 Add Funds  -> TOPUP_AMOUNT -> WalletTopup (standalone wallet top-up)
+ *   👤 Profile / 🎁 Referral / 📦 Track  -> informational replies
+ *   🎧 Support    -> AI chat (if the tenant's ai_chat add-on is active) else admin number
+ *   ⚙️ Settings   -> SELECT_LANG -> saves bot_customers.lang
+ *   👥 Group / 🌐 Website -> tenant links (menu rows shown only if configured)
  */
 class OrderBotHandler
 {
@@ -37,13 +42,16 @@ class OrderBotHandler
     private int $tenantId;
     private BotMessenger $wa;
     private string $currency;
+    private array $shop;
+    private string $lang = BotLang::DEFAULT;
 
     public function __construct(array $tenant, BotMessenger $wa)
     {
         $this->tenant = $tenant;
         $this->tenantId = (int) $tenant['id'];
         $this->wa = $wa;
-        $this->currency = BotSettings::get($this->tenantId, self::BOT)['shop']['currency'] ?? 'USD';
+        $this->shop = BotSettings::get($this->tenantId, self::BOT)['shop'] ?? [];
+        $this->currency = $this->shop['currency'] ?? 'USD';
     }
 
     public function handle(string $from, string $text): void
@@ -51,21 +59,30 @@ class OrderBotHandler
         $text = trim($text);
         $lower = mb_strtolower($text);
 
-        // Ensure the customer + wallet exist for this tenant.
-        BotCustomer::getOrCreate($this->tenantId, $from);
+        // Ensure the customer + wallet exist, and resolve their language once.
+        $customer = BotCustomer::getOrCreate($this->tenantId, $from);
+        $this->lang = BotLang::resolve($customer, $this->shop['lang'] ?? null);
 
         $convo = BotConversation::get($this->tenantId, $from, self::BOT);
         $state = $convo['state'] ?? 'IDLE';
         $ctx = $convo['context'] ?? [];
 
-        // Global reset keywords.
+        // Global reset keywords -> main menu.
         if (in_array($lower, ['hi', 'hello', 'menu', 'start', 'habari', 'mambo', '#'], true) || $state === 'IDLE') {
-            $this->startFlow($from);
+            $this->sendMainMenu($from, $customer);
 
             return;
         }
 
         switch ($state) {
+            case 'MAIN_MENU':
+                $this->onMainMenu($from, $text, $customer);
+                break;
+
+            case 'SELECT_LANG':
+                $this->onLanguageChosen($from, $text, $customer);
+                break;
+
             case 'SELECT_PLATFORM':
                 $this->onPlatformChosen($from, $text);
                 break;
@@ -87,7 +104,11 @@ class OrderBotHandler
                 break;
 
             case 'CONFIRM':
-                $this->onConfirm($from, $lower, $ctx);
+                $this->onConfirm($from, $lower, $ctx, $customer);
+                break;
+
+            case 'TOPUP_AMOUNT':
+                $this->onTopupAmount($from, $text, $ctx);
                 break;
 
             case 'TOPUP_DECISION':
@@ -99,29 +120,245 @@ class OrderBotHandler
                 break;
 
             case 'AWAITING_BINANCE_ORDER':
-                // Customer is reporting their Binance Order ID for verification.
                 WalletTopup::verifyBinanceOrder($this->tenant, $this->wa, $from, $text, $ctx);
                 break;
 
             case 'AWAITING_PAYMENT':
-                // Waiting for the gateway webhook. A message here means the
-                // customer is checking in — reassure them.
-                $this->wa->sendText($from, "⏳ Waiting for your payment to be confirmed. Approve the prompt on your phone, or send *hi* to cancel and start over.");
+                $this->wa->sendText($from, $this->t('awaiting_payment'));
+                break;
+
+            case 'AI_CHAT':
+                $this->onAiChat($from, $text, $ctx);
                 break;
 
             default:
-                $this->startFlow($from);
+                $this->sendMainMenu($from, $customer);
         }
     }
 
-    // ---- Step 1: platforms -------------------------------------------------
+    /** Translate a key in the current customer's language. */
+    private function t(string $key, array $vars = []): string
+    {
+        return BotLang::t($this->lang, $key, $vars);
+    }
 
-    private function startFlow(string $from): void
+    // ---- Main menu ---------------------------------------------------------
+
+    private function sendMainMenu(string $from, array $customer): void
+    {
+        $name = ($customer['name'] ?? '') !== '' ? $customer['name'] : $this->t('default_customer_name');
+        $welcome = $this->t('menu_welcome', [
+            'name_upper' => mb_strtoupper($name),
+            'name' => $name,
+            'business' => $this->tenant['business_name'] ?? '',
+        ]);
+
+        $rows = [
+            ['id' => 'main:new_order', 'title' => $this->t('menu_new_order_title'), 'description' => $this->t('menu_new_order_desc')],
+            ['id' => 'main:topup', 'title' => $this->t('menu_topup_title'), 'description' => $this->t('menu_topup_desc')],
+            ['id' => 'main:profile', 'title' => $this->t('menu_profile_title'), 'description' => $this->t('menu_profile_desc')],
+            ['id' => 'main:referral', 'title' => $this->t('menu_referral_title'), 'description' => $this->t('menu_referral_desc')],
+            ['id' => 'main:track', 'title' => $this->t('menu_track_title'), 'description' => $this->t('menu_track_desc')],
+            ['id' => 'main:support', 'title' => $this->t('menu_support_title'), 'description' => $this->t('menu_support_desc')],
+            ['id' => 'main:settings', 'title' => $this->t('menu_settings_title'), 'description' => $this->t('menu_settings_desc')],
+        ];
+        // Optional tenant links — shown only when configured.
+        if (trim((string) ($this->shop['group_url'] ?? '')) !== '') {
+            $rows[] = ['id' => 'main:group', 'title' => $this->t('menu_group_title'), 'description' => $this->t('menu_group_desc')];
+        }
+        if (trim((string) ($this->shop['website_url'] ?? '')) !== '') {
+            $rows[] = ['id' => 'main:website', 'title' => $this->t('menu_website_title'), 'description' => $this->t('menu_website_desc')];
+        }
+
+        BotConversation::set($this->tenantId, $from, self::BOT, 'MAIN_MENU', []);
+        $this->wa->sendList($from, $welcome, $this->t('btn_open_menu'), $this->t('menu_header'), $rows, 'WELCOME');
+    }
+
+    private function onMainMenu(string $from, string $text, array $customer): void
+    {
+        $choice = str_starts_with($text, 'main:') ? substr($text, 5) : '';
+
+        switch ($choice) {
+            case 'new_order':
+                $this->startOrderFlow($from);
+                break;
+            case 'topup':
+                $this->startTopup($from);
+                break;
+            case 'profile':
+                $this->sendProfile($from, $customer);
+                break;
+            case 'referral':
+                $this->sendReferral($from, $customer);
+                break;
+            case 'track':
+                $this->sendTracking($from);
+                break;
+            case 'support':
+                $this->startSupport($from);
+                break;
+            case 'settings':
+                $this->sendLanguageChooser($from);
+                break;
+            case 'group':
+                $this->wa->sendText($from, $this->t('group_info', ['url' => $this->shop['group_url'] ?? '']));
+                BotConversation::reset($this->tenantId, $from, self::BOT);
+                break;
+            case 'website':
+                $this->wa->sendText($from, $this->t('website_info', ['url' => $this->shop['website_url'] ?? '']));
+                BotConversation::reset($this->tenantId, $from, self::BOT);
+                break;
+            default:
+                $this->wa->sendText($from, $this->t('not_understood_menu'));
+        }
+    }
+
+    // ---- Settings / language -----------------------------------------------
+
+    private function sendLanguageChooser(string $from): void
+    {
+        // WhatsApp button messages allow up to 3 buttons, so 5 languages go in a list.
+        $rows = [];
+        foreach (BotLang::SUPPORTED as $code) {
+            $rows[] = ['id' => 'lang:' . $code, 'title' => $this->t('lang_name_' . $code), 'description' => ''];
+        }
+        BotConversation::set($this->tenantId, $from, self::BOT, 'SELECT_LANG', []);
+        $this->wa->sendList($from, $this->t('settings_choose_language'), $this->t('menu_settings_title'), $this->t('menu_header'), $rows);
+    }
+
+    private function onLanguageChosen(string $from, string $text, array $customer): void
+    {
+        if (!str_starts_with($text, 'lang:')) {
+            $this->wa->sendText($from, $this->t('settings_press_language'));
+
+            return;
+        }
+
+        $chosen = BotLang::normalize(substr($text, 5));
+        BotCustomer::setLang((int) $customer['id'], $chosen);
+        $this->lang = $chosen;
+
+        // Confirm in the newly chosen language, then reopen the menu in it.
+        $this->wa->sendText($from, $this->t('language_changed'));
+        $customer['lang'] = $chosen;
+        $this->sendMainMenu($from, $customer);
+    }
+
+    // ---- Profile / Referral / Track ----------------------------------------
+
+    private function sendProfile(string $from, array $customer): void
+    {
+        $this->wa->sendText($from, $this->t('profile', [
+            'balance' => $this->money((float) $customer['balance']),
+            'spent' => $this->money((float) ($customer['total_spent'] ?? 0)),
+            'code' => $customer['referral_code'] ?? '—',
+        ]));
+        BotConversation::reset($this->tenantId, $from, self::BOT);
+    }
+
+    private function sendReferral(string $from, array $customer): void
+    {
+        $count = BotCustomer::countReferrals((int) $customer['id']);
+        $this->wa->sendText($from, $this->t('referral_info', [
+            'code' => $customer['referral_code'] ?? '—',
+            'count' => $count,
+            'earnings' => $this->money((float) ($customer['referral_earnings'] ?? 0)),
+        ]));
+        BotConversation::reset($this->tenantId, $from, self::BOT);
+    }
+
+    private function sendTracking(string $from): void
+    {
+        $orders = BotOrder::recentForCustomer($this->tenantId, $from, 5);
+        if ($orders === []) {
+            $this->wa->sendText($from, $this->t('track_none'));
+            BotConversation::reset($this->tenantId, $from, self::BOT);
+
+            return;
+        }
+
+        $body = $this->t('track_header');
+        foreach ($orders as $o) {
+            $number = !empty($o['provider_order_id']) ? $o['provider_order_id'] : $o['id'];
+            $body .= $this->t('track_line', [
+                'number' => $number,
+                'service' => $o['service_name'] ?? '—',
+                'status' => $o['status'] ?? 'pending',
+                'amount' => $this->money((float) ($o['amount'] ?? 0)),
+            ]);
+        }
+        $body .= $this->t('track_footer');
+
+        $this->wa->sendText($from, $body);
+        BotConversation::reset($this->tenantId, $from, self::BOT);
+    }
+
+    // ---- Support (AI add-on gated) -----------------------------------------
+
+    private function startSupport(string $from): void
+    {
+        // The tenant picks how Support is handled: 'ai' (AI chat) or 'admin'.
+        // AI is a paid add-on, so it only actually engages when chosen AND the
+        // ai_chat subscription is active AND a DeepSeek key is set — otherwise we
+        // fall back to handing the customer to the admin number.
+        $aiActive = ($this->shop['support_mode'] ?? 'admin') === 'ai'
+            && Subscription::isServiceActive($this->tenantId, 'ai_chat')
+            && TenantAi::apiKey($this->tenantId) !== null;
+
+        if ($aiActive) {
+            BotConversation::set($this->tenantId, $from, self::BOT, 'AI_CHAT', ['history' => []]);
+            $this->wa->sendText($from, $this->t('support_ai_intro'));
+
+            return;
+        }
+
+        $agent = $this->firstStaffNumber();
+        if ($agent !== '') {
+            $this->wa->sendText($from, $this->t('support_human', ['url' => 'https://wa.me/' . $agent]));
+        } else {
+            $this->wa->sendText($from, $this->t('support_human_soon'));
+        }
+        BotConversation::reset($this->tenantId, $from, self::BOT);
+    }
+
+    private function onAiChat(string $from, string $text, array $ctx): void
+    {
+        $apiKey = TenantAi::apiKey($this->tenantId);
+        if ($apiKey === null || !Subscription::isServiceActive($this->tenantId, 'ai_chat')) {
+            $agent = $this->firstStaffNumber();
+            $this->wa->sendText($from, $agent !== ''
+                ? $this->t('support_human', ['url' => 'https://wa.me/' . $agent])
+                : $this->t('support_human_soon'));
+            BotConversation::reset($this->tenantId, $from, self::BOT);
+
+            return;
+        }
+
+        $history = $ctx['history'] ?? [];
+        $client = new DeepSeekClient($apiKey, $this->tenant['business_name'] ?? 'our store');
+        $result = $client->reply($history, $text, $this->lang);
+
+        if (empty($result['success'])) {
+            $this->wa->sendText($from, $this->t('support_ai_unavailable'));
+
+            return;
+        }
+
+        $this->wa->sendText($from, $result['reply']);
+        $history[] = ['role' => 'user', 'content' => $text];
+        $history[] = ['role' => 'assistant', 'content' => $result['reply']];
+        $history = array_slice($history, -6);
+        BotConversation::set($this->tenantId, $from, self::BOT, 'AI_CHAT', ['history' => $history]);
+    }
+
+    // ---- New order: platforms ----------------------------------------------
+
+    private function startOrderFlow(string $from): void
     {
         $platforms = BotService::activePlatforms($this->tenantId);
 
         if ($platforms === []) {
-            $this->wa->sendText($from, "⚠️ This store isn't set up yet. Please try again later.");
+            $this->wa->sendText($from, $this->t('store_not_ready'));
             BotConversation::reset($this->tenantId, $from, self::BOT);
 
             return;
@@ -133,8 +370,7 @@ class OrderBotHandler
         }
 
         BotConversation::set($this->tenantId, $from, self::BOT, 'SELECT_PLATFORM', []);
-        $welcome = "👋 Welcome to *{$this->tenant['business_name']}*!\nChoose a platform:";
-        $this->wa->sendList($from, $welcome, 'View platforms', 'Platforms', $rows, 'WELCOME');
+        $this->wa->sendList($from, $this->t('choose_platform'), $this->t('btn_platforms'), $this->t('platforms_header'), $rows, 'WELCOME');
     }
 
     private function onPlatformChosen(string $from, string $text): void
@@ -142,15 +378,11 @@ class OrderBotHandler
         $platform = str_starts_with($text, 'plat_') ? substr($text, 5) : $text;
 
         if (BotService::activeByPlatform($this->tenantId, $platform) === []) {
-            $this->wa->sendText($from, "Please pick a platform from the list. Send *hi* to see it again.");
+            $this->wa->sendText($from, $this->t('pick_platform_again'));
 
             return;
         }
 
-        // WhatsApp lists cap at 10 rows, so a platform with many services is split
-        // by category. Show a category picker only when it actually helps: more
-        // than one named category (and no more than 10 to fit the list). One
-        // category, or none, skips straight to the service list.
         $categories = BotService::categoriesByPlatform($this->tenantId, $platform);
         $uncategorised = BotService::uncategorisedCount($this->tenantId, $platform);
         $buckets = count($categories) + ($uncategorised > 0 ? 1 : 0);
@@ -161,19 +393,16 @@ class OrderBotHandler
                 $rows[] = ['id' => 'cat_' . rawurlencode($cat), 'title' => mb_substr($cat, 0, 24), 'description' => ''];
             }
             if ($uncategorised > 0) {
-                $rows[] = ['id' => 'cat_', 'title' => 'Other', 'description' => ''];
+                $rows[] = ['id' => 'cat_', 'title' => $this->t('category_other'), 'description' => ''];
             }
             BotConversation::set($this->tenantId, $from, self::BOT, 'SELECT_CATEGORY', ['platform' => $platform]);
-            $this->wa->sendList($from, "*{$platform}* — choose a category:", 'Categories', 'Categories', $rows, 'SELECT_CATEGORY');
+            $this->wa->sendList($from, $this->t('choose_category', ['platform' => $platform]), $this->t('categories_header'), $this->t('categories_header'), $rows, 'SELECT_CATEGORY');
 
             return;
         }
 
-        // No useful category split — go straight to services for the platform.
         $this->sendServiceList($from, $platform, null, BotService::activeByPlatform($this->tenantId, $platform));
     }
-
-    // ---- Step 1b: category (only when a platform has several) --------------
 
     private function onCategoryChosen(string $from, string $text, array $ctx): void
     {
@@ -182,7 +411,7 @@ class OrderBotHandler
 
         $services = BotService::activeByPlatformCategory($this->tenantId, $platform, $category);
         if ($services === []) {
-            $this->wa->sendText($from, "Please pick a category from the list. Send *hi* to start over.");
+            $this->wa->sendText($from, $this->t('pick_category_again'));
 
             return;
         }
@@ -190,7 +419,6 @@ class OrderBotHandler
         $this->sendServiceList($from, $platform, $category !== '' ? $category : null, $services);
     }
 
-    /** Build + send the service list (max 10) and set SELECT_SERVICE state. */
     private function sendServiceList(string $from, string $platform, ?string $category, array $services): void
     {
         $rows = [];
@@ -199,7 +427,7 @@ class OrderBotHandler
             $rows[] = [
                 'id' => 'svc_' . $s['id'],
                 'title' => mb_substr($s['name'], 0, 24),
-                'description' => $this->money(($s['my_price'] / 1000)) . " / 1k",
+                'description' => $this->money(($s['my_price'] / 1000)) . ' ' . $this->t('per_1k'),
             ];
             $index[(string) $s['id']] = [
                 'id' => (int) $s['id'],
@@ -219,10 +447,10 @@ class OrderBotHandler
             'services' => $index,
         ]);
         $heading = $category !== null ? "*{$platform} · {$category}*" : "*{$platform}*";
-        $this->wa->sendList($from, "{$heading} — choose a service:", 'Services', 'Services', $rows, 'SELECT_SERVICE');
+        $this->wa->sendList($from, $this->t('choose_service', ['heading' => $heading]), $this->t('btn_services'), $this->t('services_header'), $rows, 'SELECT_SERVICE');
     }
 
-    // ---- Step 2: service ---------------------------------------------------
+    // ---- New order: service ------------------------------------------------
 
     private function onServiceChosen(string $from, string $text, array $ctx): void
     {
@@ -230,7 +458,7 @@ class OrderBotHandler
         $service = $ctx['services'][$serviceId] ?? null;
 
         if ($service === null) {
-            $this->wa->sendText($from, "Please pick a service from the list. Send *hi* to start over.");
+            $this->wa->sendText($from, $this->t('pick_service_again'));
 
             return;
         }
@@ -240,7 +468,7 @@ class OrderBotHandler
         $this->sendQuantityChoices($from, $service);
     }
 
-    // ---- Step 3: quantity --------------------------------------------------
+    // ---- New order: quantity -----------------------------------------------
 
     private function sendQuantityChoices(string $from, array $service): void
     {
@@ -256,9 +484,9 @@ class OrderBotHandler
                 'description' => $this->money(($service['my_price'] / 1000) * $qty),
             ];
         }
-        $rows[] = ['id' => 'qty_custom', 'title' => 'Custom amount', 'description' => "{$service['min']} – {$service['max']}"];
+        $rows[] = ['id' => 'qty_custom', 'title' => $this->t('qty_custom_title'), 'description' => "{$service['min']} – {$service['max']}"];
 
-        $this->wa->sendList($from, "How many *{$service['name']}*?", 'Packages', 'Quantity', $rows, 'SELECT_QTY');
+        $this->wa->sendList($from, $this->t('how_many', ['service' => $service['name']]), $this->t('btn_packages'), $this->t('packages_header'), $rows, 'SELECT_QTY');
     }
 
     private function onQuantityChosen(string $from, string $text, array $ctx): void
@@ -267,29 +495,29 @@ class OrderBotHandler
         $choice = str_starts_with($text, 'qty_') ? substr($text, 4) : $text;
 
         if ($choice === 'custom') {
-            $this->wa->sendText($from, "🔢 Enter a quantity ({$service['min']} – {$service['max']}).");
-            // Stay in SELECT_QTY; next numeric message is parsed below.
+            $this->wa->sendText($from, $this->t('qty_custom_prompt', ['min' => $service['min'], 'max' => $service['max']]));
+
             return;
         }
 
         $qty = (int) preg_replace('/[^0-9]/', '', $choice);
         if ($qty < $service['min'] || $qty > $service['max']) {
-            $this->wa->sendText($from, "Please enter a quantity between {$service['min']} and {$service['max']}.");
+            $this->wa->sendText($from, $this->t('qty_out_of_range', ['min' => $service['min'], 'max' => $service['max']]));
 
             return;
         }
 
         $ctx['quantity'] = $qty;
         BotConversation::set($this->tenantId, $from, self::BOT, 'SEND_LINK', $ctx);
-        $this->wa->sendText($from, "🔗 Send the *link* for *{$service['name']}* (profile or post URL).", 'SEND_LINK');
+        $this->wa->sendText($from, $this->t('send_link', ['service' => $service['name']]), 'SEND_LINK');
     }
 
-    // ---- Step 4: link ------------------------------------------------------
+    // ---- New order: link ---------------------------------------------------
 
     private function onLink(string $from, string $text, array $ctx): void
     {
         if (!filter_var($text, FILTER_VALIDATE_URL)) {
-            $this->wa->sendText($from, "That doesn't look like a valid link. Please send the full URL (https://…).");
+            $this->wa->sendText($from, $this->t('invalid_link'));
 
             return;
         }
@@ -304,21 +532,26 @@ class OrderBotHandler
 
         $this->wa->sendButtons(
             $from,
-            "✅ Confirm your order:\n\n*{$service['name']}*\nLink: {$text}\nQuantity: " . number_format($qty) . "\nTotal: *{$this->money($amount)}*",
+            $this->t('confirm_order', [
+                'service' => $service['name'],
+                'link' => $text,
+                'qty' => number_format($qty),
+                'total' => $this->money($amount),
+            ]),
             [
-                ['id' => 'confirm_yes', 'title' => 'Confirm'],
-                ['id' => 'confirm_no', 'title' => 'Cancel'],
+                ['id' => 'confirm_yes', 'title' => $this->t('btn_confirm')],
+                ['id' => 'confirm_no', 'title' => $this->t('btn_cancel')],
             ]
         );
     }
 
-    // ---- Step 5: confirm -> wallet -----------------------------------------
+    // ---- New order: confirm -> wallet --------------------------------------
 
-    private function onConfirm(string $from, string $lower, array $ctx): void
+    private function onConfirm(string $from, string $lower, array $ctx, array $customer): void
     {
         if (!in_array($lower, ['confirm_yes', 'confirm', 'yes', 'ndio', 'ndiyo'], true)) {
             BotConversation::reset($this->tenantId, $from, self::BOT);
-            $this->wa->sendText($from, "❌ Order cancelled. Send *hi* to start again.", 'GOODBYE');
+            $this->wa->sendText($from, $this->t('order_cancelled'), 'GOODBYE');
 
             return;
         }
@@ -332,16 +565,19 @@ class OrderBotHandler
             return;
         }
 
-        // Not enough balance — offer to top up (Awamu 4 wires the gateways).
         $shortfall = round($amount - (float) $customer['balance'], 2);
         $ctx['shortfall'] = $shortfall;
         BotConversation::set($this->tenantId, $from, self::BOT, 'TOPUP_DECISION', $ctx);
         $this->wa->sendButtons(
             $from,
-            "💰 Your balance is {$this->money((float) $customer['balance'])}, but this order costs {$this->money($amount)}.\nYou need {$this->money($shortfall)} more.",
+            $this->t('insufficient_balance', [
+                'balance' => $this->money((float) $customer['balance']),
+                'amount' => $this->money($amount),
+                'shortfall' => $this->money($shortfall),
+            ]),
             [
-                ['id' => 'topup_yes', 'title' => 'Top up & pay'],
-                ['id' => 'topup_no', 'title' => 'Cancel'],
+                ['id' => 'topup_yes', 'title' => $this->t('btn_topup_pay')],
+                ['id' => 'topup_no', 'title' => $this->t('btn_cancel')],
             ]
         );
     }
@@ -352,7 +588,7 @@ class OrderBotHandler
         $amount = (float) $ctx['amount'];
 
         if (!BotCustomer::debit((int) $customer['id'], $amount)) {
-            $this->wa->sendText($from, "⚠️ Couldn't charge your wallet. Please try again.");
+            $this->wa->sendText($from, $this->t('wallet_charge_failed'));
             BotConversation::reset($this->tenantId, $from, self::BOT);
 
             return;
@@ -381,18 +617,23 @@ class OrderBotHandler
 
         $this->wa->sendText(
             $from,
-            "✅ Order *#{$number}* placed!\n\n*{$service['name']}*\nQuantity: " . number_format((int) $ctx['quantity']) . "\nCharged: {$this->money($amount)}\nNew balance: {$this->money((float) $customer['balance'] - $amount)}\n\nSend *hi* to order again.",
+            $this->t('order_placed', [
+                'number' => $number,
+                'service' => $service['name'],
+                'qty' => number_format((int) $ctx['quantity']),
+                'amount' => $this->money($amount),
+                'balance' => $this->money((float) $customer['balance'] - $amount),
+            ]),
             'CONFIRMED'
         );
 
         $this->notifyStaff("🛒 New order *#{$number}*\n{$service['name']} × " . number_format((int) $ctx['quantity']) . "\nFrom: {$from}");
     }
 
-    /** Forward the order to the tenant's panel (if one is linked). */
     private function submitToPanel(int $orderId, array $service, array $ctx): void
     {
         if (empty($service['panel_id'])) {
-            return; // no panel linked; order stays pending for manual handling
+            return;
         }
 
         $panel = TenantPanel::findForTenant((int) $service['panel_id'], $this->tenantId);
@@ -413,23 +654,64 @@ class OrderBotHandler
         }
     }
 
-    // ---- Top-up decision (handed to WalletTopup in Awamu 4) -----------------
+    // ---- Standalone wallet top-up (Add Funds menu) -------------------------
+
+    private function startTopup(string $from): void
+    {
+        BotConversation::set($this->tenantId, $from, self::BOT, 'TOPUP_AMOUNT', []);
+        $this->wa->sendText($from, $this->t('topup_prompt', [
+            'cur' => $this->currency,
+            'min' => $this->money((float) ($this->shop['min_topup'] ?? 1)),
+        ]));
+    }
+
+    private function onTopupAmount(string $from, string $text, array $ctx): void
+    {
+        $amount = (float) preg_replace('/[^0-9.]/', '', str_replace(',', '', $text));
+        $min = (float) ($this->shop['min_topup'] ?? 1);
+
+        if ($amount < $min || $amount <= 0) {
+            $this->wa->sendText($from, $this->t('topup_amount_invalid', [
+                'min' => $this->money($min),
+                'cur' => $this->currency,
+            ]));
+
+            return;
+        }
+
+        // Hand to WalletTopup as a standalone top-up (no pending order attached).
+        $ctx['topup_amount'] = $amount;
+        WalletTopup::begin($this->tenant, $this->wa, $from, $ctx);
+    }
+
+    // ---- Top-up decision after a short order --------------------------------
 
     private function onTopupDecision(string $from, string $lower, array $ctx): void
     {
         if (!in_array($lower, ['topup_yes', 'yes', 'ndio', 'ndiyo'], true)) {
             BotConversation::reset($this->tenantId, $from, self::BOT);
-            $this->wa->sendText($from, "❌ Order cancelled. Send *hi* to start again.");
+            $this->wa->sendText($from, $this->t('order_cancelled'));
 
             return;
         }
 
-        // WalletTopup owns the gateway/phone sub-flow and, after payment, credits
-        // the wallet and completes the pending order data carried in $ctx.
         WalletTopup::begin($this->tenant, $this->wa, $from, $ctx);
     }
 
     // ---- helpers -----------------------------------------------------------
+
+    private function firstStaffNumber(): string
+    {
+        $numbers = BotSettings::get($this->tenantId, self::BOT)['staff']['numbers'] ?? [];
+        foreach ($numbers as $n) {
+            $d = preg_replace('/\D/', '', (string) $n);
+            if ($d !== '') {
+                return $d;
+            }
+        }
+
+        return '';
+    }
 
     private function notifyStaff(string $message): void
     {

@@ -28,13 +28,26 @@ document.addEventListener('click', function(e){
   }
 });
 
-/* Collapsible sidebar — remembers its state across pages. */
+/* Collapsible sidebar — remembers its state across pages.
+   The icon-only "collapsed" rail is a DESKTOP feature only. On phones the
+   sidebar is a full slide-in drawer, so we never apply collapsed there and
+   strip it if the viewport shrinks past the drawer breakpoint. */
 var sidebar = document.getElementById('sidebar');
 var sideToggle = document.getElementById('sideToggle');
-if (sidebar && localStorage.getItem('sidebar') === 'collapsed') {
-  sidebar.classList.add('collapsed');
+var mobileNav = window.matchMedia('(max-width: 880px)');
+function syncRail(){
+  if (!sidebar) return;
+  if (mobileNav.matches) {
+    sidebar.classList.remove('collapsed');          // full drawer on mobile
+  } else if (localStorage.getItem('sidebar') === 'collapsed') {
+    sidebar.classList.add('collapsed');             // restore desktop preference
+  }
 }
+syncRail();
+(mobileNav.addEventListener ? mobileNav.addEventListener('change', syncRail)
+                            : mobileNav.addListener(syncRail));
 if (sideToggle) sideToggle.addEventListener('click', function(){
+  if (mobileNav.matches) return;                    // no collapse toggle on mobile
   sidebar.classList.toggle('collapsed');
   localStorage.setItem('sidebar', sidebar.classList.contains('collapsed') ? 'collapsed' : 'expanded');
 });
@@ -45,6 +58,21 @@ var avatarDrop = document.getElementById('avatarDrop');
 if (avatarBtn && avatarDrop) {
   avatarBtn.addEventListener('click', function(e){ e.stopPropagation(); avatarDrop.classList.toggle('open'); });
   document.addEventListener('click', function(){ avatarDrop.classList.remove('open'); });
+}
+
+/* Language dropdown — same open/close behaviour as the avatar menu. */
+var langMenu = document.getElementById('langMenu');
+var langBtn = document.getElementById('langBtn');
+if (langMenu && langBtn) {
+  langBtn.addEventListener('click', function(e){
+    e.stopPropagation();
+    var open = langMenu.classList.toggle('open');
+    langBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  document.addEventListener('click', function(){
+    langMenu.classList.remove('open');
+    langBtn.setAttribute('aria-expanded', 'false');
+  });
 }
 
 /* Quick find — Enter routes to Orders search (the main searchable list). */

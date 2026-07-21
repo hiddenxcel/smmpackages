@@ -45,10 +45,22 @@ $isAuthed = TenantAuth::check();
     </ul>
 
     <div class="nav-actions">
-      <div class="lang-switch">
-        <?php foreach (Lang::SUPPORTED as $lng): ?>
-          <a href="<?= htmlspecialchars(Lang::switchUrl($lng)) ?>" class="<?= Lang::current()===$lng ? 'active' : '' ?>"><?= strtoupper($lng) ?></a>
-        <?php endforeach; ?>
+      <?php $langNames = ['en' => 'English', 'fr' => 'Français', 'sw' => 'Kiswahili']; $curLng = Lang::current(); ?>
+      <div class="lang-menu" id="langMenu">
+        <button class="lang-btn" id="langBtn" aria-haspopup="true" aria-expanded="false" aria-label="Language">
+          <i class="fa-solid fa-globe"></i>
+          <span class="lang-cur"><?= strtoupper($curLng) ?></span>
+          <i class="fa-solid fa-chevron-down lang-caret"></i>
+        </button>
+        <div class="lang-drop" id="langDrop">
+          <?php foreach (Lang::SUPPORTED as $lng): ?>
+            <a href="<?= htmlspecialchars(Lang::switchUrl($lng)) ?>" class="<?= $curLng === $lng ? 'active' : '' ?>">
+              <span class="lang-code"><?= strtoupper($lng) ?></span>
+              <span class="lang-full"><?= htmlspecialchars($langNames[$lng] ?? strtoupper($lng)) ?></span>
+              <?php if ($curLng === $lng): ?><i class="fa-solid fa-check lang-tick"></i><?php endif; ?>
+            </a>
+          <?php endforeach; ?>
+        </div>
       </div>
       <button class="theme-toggle" id="themeToggle" aria-label="Theme"><i class="fa-solid fa-moon"></i></button>
       <?php if ($isAuthed): ?>

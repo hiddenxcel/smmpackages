@@ -62,6 +62,25 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && $canWrite) {
 }
 
 $shop = BotSettings::get($tenantId, 'order')['shop'];
+
+// Currencies offered in the picker. USD is the default (first). If a tenant
+// already saved something not in this list, it's appended so it stays selectable.
+$currencyOptions = [
+    'USD' => 'USD — US Dollar',
+    'TZS' => 'TZS — Tanzanian Shilling',
+    'KES' => 'KES — Kenyan Shilling',
+    'UGX' => 'UGX — Ugandan Shilling',
+    'NGN' => 'NGN — Nigerian Naira',
+    'GHS' => 'GHS — Ghanaian Cedi',
+    'ZAR' => 'ZAR — South African Rand',
+    'EUR' => 'EUR — Euro',
+    'GBP' => 'GBP — British Pound',
+];
+$currentCurrency = strtoupper((string) ($shop['currency'] ?? 'USD')) ?: 'USD';
+if (!isset($currencyOptions[$currentCurrency])) {
+    $currencyOptions[$currentCurrency] = $currentCurrency;
+}
+
 $webhookUrl = rtrim($config['app']['url'] ?? '', '/') . '/webhooks/bot-payment.php';
 $configured = [];
 foreach (TenantPaymentGateway::allForTenant($tenantId) as $g) {
@@ -98,7 +117,11 @@ if ($gateBlock) { require __DIR__ . '/includes/dash_footer.php'; return; }
     <input type="hidden" name="action" value="save_shop">
     <div>
       <label style="font-size:.8rem;color:var(--text-muted)">Currency (customer-facing)</label>
-      <input type="text" name="currency" class="form-control" value="<?= htmlspecialchars($shop['currency']) ?>" maxlength="5" placeholder="USD">
+      <select name="currency" class="form-control">
+        <?php foreach ($currencyOptions as $code => $label): ?>
+        <option value="<?= htmlspecialchars($code) ?>"<?= $code === $currentCurrency ? ' selected' : '' ?>><?= htmlspecialchars($label) ?></option>
+        <?php endforeach; ?>
+      </select>
     </div>
     <div>
       <label style="font-size:.8rem;color:var(--text-muted)">Minimum top-up</label>

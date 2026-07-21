@@ -33,9 +33,13 @@ class BotSettings extends BaseModel
         // (shown to their customers), wallet top-up floor, and referral reward.
         'shop' => [
             'currency' => 'USD',       // tenant picks their own (USD, TZS, KES, …)
+            'lang' => 'en',            // default bot conversation language (en|fr|sw|tr|hi)
             'min_topup' => 1,          // minimum wallet top-up in that currency
             'referral_percent' => 0,   // % of a referred customer's first deposit
             'binance_pay_id' => '',    // Binance ID customers send USDT to (verify flow)
+            'support_mode' => 'admin', // Support menu handler: 'admin' (staff wa.me) or 'ai' (AI chat add-on)
+            'group_url' => '',         // optional community/group link (menu hides if empty)
+            'website_url' => '',       // optional website link (menu hides if empty)
             'test_numbers' => [],      // phones that may try the bot while in SANDBOX
         ],
     ];

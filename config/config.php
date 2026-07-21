@@ -59,6 +59,8 @@ return [
     ],
 
     'links' => [
-        'whatsapp_url' => Env::get('SUPPORT_WHATSAPP_URL', '#'),
+        'whatsapp_url'  => Env::get('SUPPORT_WHATSAPP_URL', '#'),
+        'telegram_url'  => Env::get('SUPPORT_TELEGRAM_URL', ''),
+        'support_email' => Env::get('SUPPORT_EMAIL', 'support@smmpackages.com'),
     ],
 ];
